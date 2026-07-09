@@ -1,0 +1,389 @@
+:root {
+  color-scheme: dark;
+  background: #050507;
+  color: #f4f7fb;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    linear-gradient(135deg, rgba(255, 45, 85, 0.14), transparent 28%),
+    linear-gradient(225deg, rgba(47, 140, 255, 0.16), transparent 34%),
+    #050507;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #2b2f3c;
+  border-radius: 8px;
+  background: #0b0c11;
+  color: #f4f7fb;
+  font: inherit;
+  padding: 10px 12px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid #252833;
+  background: rgba(10, 11, 15, 0.86);
+  padding: 28px 20px;
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: 0;
+  margin-bottom: 28px;
+}
+
+.nav {
+  display: grid;
+  gap: 10px;
+}
+
+.nav a,
+.button {
+  border: 1px solid #2b2f3c;
+  border-radius: 8px;
+  background: #111217;
+  padding: 10px 12px;
+  color: #cbd3e6;
+}
+
+.main {
+  padding: 32px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  border: 1px solid #2b2f3c;
+  border-radius: 8px;
+  background: rgba(17, 18, 23, 0.9);
+  padding: 18px;
+}
+
+.metric {
+  font-size: 32px;
+  font-weight: 800;
+}
+
+.muted {
+  color: #8b93a7;
+}
+
+.status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #17251e;
+  color: #39d98a;
+  font-size: 12px;
+}
+
+.creationWorkbench {
+  display: grid;
+  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+  gap: 18px;
+  min-height: calc(100vh - 64px);
+}
+
+.agentPanel,
+.canvasPanel {
+  border: 1px solid #252833;
+  border-radius: 8px;
+  background: rgba(10, 11, 15, 0.94);
+}
+
+.agentPanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.agentHeader,
+.canvasTopbar {
+  border-bottom: 1px solid #252833;
+  padding: 16px;
+}
+
+.agentHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agentScroll {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow: auto;
+  padding: 14px;
+}
+
+.agentMessage,
+.recipeCard,
+.exportCard {
+  border: 1px solid #2b2f3c;
+  border-radius: 8px;
+  background: #111217;
+  padding: 14px;
+}
+
+.agentMessageTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agentMessage ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #cbd3e6;
+}
+
+.promptChipGroup,
+.assetChipGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.promptChip,
+.assetChip {
+  border: 1px solid #2b2f3c;
+  border-radius: 999px;
+  background: #0b0c11;
+  color: #cbd3e6;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.recipeStack,
+.scoreRows {
+  display: grid;
+  gap: 10px;
+}
+
+.agentComposer {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #252833;
+  padding: 14px;
+}
+
+.composerGrid {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 10px;
+}
+
+.primaryButton {
+  background: #ff2d8d;
+  border-color: #ff2d8d;
+  color: #fff;
+  font-weight: 700;
+}
+
+.errorText {
+  color: #ff7a8a;
+  margin: 0;
+}
+
+.canvasPanel {
+  position: relative;
+  overflow: hidden;
+}
+
+.canvasTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.canvasTopbar h1 {
+  margin: 8px 0 6px;
+}
+
+.canvasActions {
+  display: flex;
+  gap: 10px;
+}
+
+.canvasBoard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+  gap: 14px;
+  min-height: 720px;
+  padding: 16px 70px 16px 16px;
+  background-image: radial-gradient(#2b2f3c 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.canvasColumn {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid rgba(43, 47, 60, 0.78);
+  border-radius: 8px;
+  background: rgba(17, 18, 23, 0.88);
+  padding: 14px;
+}
+
+.wideNode {
+  grid-column: span 1;
+}
+
+.nodeGrid,
+.clipGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.canvasNode,
+.clipCard {
+  min-height: 150px;
+  border: 1px solid #343948;
+  border-radius: 8px;
+  background: #151720;
+  padding: 14px;
+}
+
+.clipPreview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #343948;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 45, 85, 0.35), transparent),
+    linear-gradient(45deg, rgba(47, 140, 255, 0.28), transparent),
+    #08090d;
+  color: #f4f7fb;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.stagePreview {
+  aspect-ratio: 16 / 7;
+  border: 1px solid #2b2f3c;
+  border-radius: 8px;
+  background: #020204;
+  padding: 14px;
+}
+
+.stageScreen {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  border: 1px solid #2f8cff;
+  background:
+    linear-gradient(90deg, rgba(255, 45, 85, 0.2), transparent),
+    repeating-linear-gradient(90deg, rgba(47, 140, 255, 0.18) 0 2px, transparent 2px 18px);
+  color: #cbd3e6;
+  text-align: center;
+}
+
+.scoreRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.scoreBar {
+  grid-column: 1 / -1;
+  height: 8px;
+  border-radius: 999px;
+  background: #252833;
+  overflow: hidden;
+}
+
+.scoreBar span {
+  display: block;
+  height: 100%;
+  background: #39d98a;
+}
+
+.canvasToolRail {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 8px;
+  border: 1px solid #2b2f3c;
+  border-radius: 999px;
+  background: rgba(17, 18, 23, 0.96);
+  padding: 8px;
+}
+
+.toolButton {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 999px;
+  background: #252833;
+  color: #f4f7fb;
+}
+
+@media (max-width: 760px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #252833;
+  }
+}
+
+@media (max-width: 1080px) {
+  .creationWorkbench,
+  .canvasBoard {
+    grid-template-columns: 1fr;
+  }
+
+  .canvasBoard {
+    padding-right: 16px;
+  }
+
+  .canvasToolRail {
+    position: static;
+    transform: none;
+    display: flex;
+    margin: 0 16px 16px;
+    width: max-content;
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@droploop/prompts": ["../prompts/src/index.ts"],
+      "@droploop/schemas": ["../schemas/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

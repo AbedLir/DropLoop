@@ -1,0 +1,11 @@
+{
+  "name": "@droploop/database",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node -e \"console.log('SQL package has no build step')\"",
+    "typecheck": "node -e \"console.log('SQL package has no typecheck step')\"",
+    "lint": "node -e \"console.log('SQL package has no lint step')\"",
+    "test": "node -e \"console.log('SQL package has no test step')\""
+  }
+}

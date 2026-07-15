@@ -47,6 +47,23 @@ import { buildVjRecipeCatalog } from "./recipes";
 export { classifyVjAssets } from "./asset-classifier";
 export { buildCanvasModel } from "./canvas-model";
 export { buildVjRecipeCatalog } from "./recipes";
+export {
+  DurableJobController,
+  InvalidJobTransitionError,
+  JobConflictError,
+  ProviderError,
+  assertJobTransition,
+  canTransitionJob
+} from "./control-plane";
+export type {
+  CreateAttemptInput,
+  DurableJobRepository,
+  GenerateVideoInput,
+  JobChanges,
+  RepairVideoInput,
+  ReserveJobInput,
+  VideoProvider
+} from "./control-plane";
 
 export const projectPipelineInputSchema = z.object({
   projectId: z.string().min(1),

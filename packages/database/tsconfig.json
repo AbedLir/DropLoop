@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@droploop/pipeline": ["../pipeline/src/index.ts"],
+      "@droploop/schemas": ["../schemas/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -60,6 +60,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@droploop/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       '@droploop/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
@@ -77,7 +80,24 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  packages/database: {}
+  packages/database:
+    dependencies:
+      '@droploop/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
+      '@droploop/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
   packages/pipeline:
     dependencies:
@@ -932,6 +952,10 @@ packages:
     resolution: {integrity: sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
+    engines: {node: '>=12'}
+
   react-dom@19.2.7:
     resolution: {integrity: sha512-t0BRVXvbiE/o20Hfw669rLbMCDWtYZLvmJigy2f0MxsXF+71pxhR3xOkspmsO8h3ZlNzyibAmtCa3l4lYKk6gQ==}
     peerDependencies:
@@ -1666,6 +1690,8 @@ snapshots:
       nanoid: 3.3.12
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  postgres@3.4.9: {}
 
   react-dom@19.2.7(react@19.2.7):
     dependencies:

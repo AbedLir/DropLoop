@@ -13,6 +13,7 @@
     "test": "tsc --noEmit"
   },
   "dependencies": {
+    "@droploop/database": "workspace:*",
     "@droploop/pipeline": "workspace:*",
     "@droploop/prompts": "workspace:*",
     "@droploop/schemas": "workspace:*",

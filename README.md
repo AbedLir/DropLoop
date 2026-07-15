@@ -29,6 +29,12 @@ Run the full local verification gate with:
 pnpm verify
 ```
 
+Apply the Supabase/Postgres control-plane migrations with a server-only `DATABASE_URL`:
+
+```powershell
+pnpm --filter @droploop/database migrate
+```
+
 ## Repository Layout
 
 ```text

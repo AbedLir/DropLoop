@@ -109,7 +109,7 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
           orchestrationMode,
           stageByOperation[input.operation],
           input.operation,
-          JSON.stringify(input.input),
+          transaction.json(input.input as never),
           input.idempotencyKey,
           input.maxAttempts ?? 3
         ]
@@ -206,7 +206,7 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
         where id = $1 and status in (${statusParameters})
         returning *
       `,
-      [jobId, JSON.stringify(changes), ...expectedStatuses]
+      [jobId, this.sql.json(changes as never), ...expectedStatuses]
     )) as unknown as JobRow[];
 
     const row = rows[0];
@@ -249,7 +249,7 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
         input.providerJobId ?? null,
         input.status,
         input.costUsd,
-        JSON.stringify(input.rawResponse ?? null),
+        this.sql.json((input.rawResponse ?? null) as never),
         input.errorCategory ?? null,
         input.errorMessage ?? null,
         input.startedAt,
@@ -278,7 +278,7 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
         where provider_job_id = $1
         returning *
       `,
-      [providerJobId, JSON.stringify(changes)]
+      [providerJobId, this.sql.json(changes as never)]
     )) as unknown as AttemptRow[];
 
     const row = rows[0];

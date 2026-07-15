@@ -19,11 +19,11 @@ type JobRow = {
   idempotency_key: string;
   status: string;
   progress: number;
-  input: Record<string, unknown>;
+  input: Record<string, unknown> | string;
   provider: string | null;
   provider_job_id: string | null;
   provider_model: string | null;
-  provider_config: Record<string, unknown> | null;
+  provider_config: Record<string, unknown> | string | null;
   attempt_count: number;
   max_attempts: number;
   cost_usd: string | number;
@@ -63,7 +63,7 @@ type TimelineRow = {
   actor_id: string | null;
   from_status: string | null;
   to_status: string | null;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | string;
   created_at: Date | string;
 };
 
@@ -315,11 +315,11 @@ function mapJob(row: JobRow): GenerationJob {
     idempotencyKey: row.idempotency_key,
     status: row.status,
     progress: row.progress,
-    input: row.input,
+    input: parseJsonObject(row.input),
     ...(row.provider ? { provider: row.provider } : {}),
     ...(row.provider_job_id ? { providerJobId: row.provider_job_id } : {}),
     ...(row.provider_model ? { providerModel: row.provider_model } : {}),
-    ...(row.provider_config ? { providerConfig: row.provider_config } : {}),
+    ...(row.provider_config ? { providerConfig: parseJsonObject(row.provider_config) } : {}),
     attemptCount: row.attempt_count,
     maxAttempts: row.max_attempts,
     costUsd: Number(row.cost_usd),
@@ -345,7 +345,7 @@ function mapTimelineEvent(row: TimelineRow): JobTimelineEvent {
     ...(row.actor_id ? { actorId: row.actor_id } : {}),
     ...(row.from_status ? { fromStatus: row.from_status } : {}),
     ...(row.to_status ? { toStatus: row.to_status } : {}),
-    payload: row.payload,
+    payload: parseJsonObject(row.payload),
     createdAt: toIso(row.created_at)
   });
 }
@@ -370,4 +370,8 @@ function mapAttempt(row: AttemptRow): JobAttempt {
 
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function parseJsonObject(value: Record<string, unknown> | string): Record<string, unknown> {
+  return typeof value === "string" ? (JSON.parse(value) as Record<string, unknown>) : value;
 }

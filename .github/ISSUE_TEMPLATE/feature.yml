@@ -1,0 +1,45 @@
+name: Feature or milestone work
+description: Plan product or engineering work with evidence and acceptance criteria.
+title: "[Scope] "
+labels: []
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Describe the user-visible or engineering outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and context
+      description: Link research, an ADR, an incident, or repository evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope
+      description: List the smallest coherent deliverables.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: State what this issue intentionally does not solve.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use observable, testable conditions.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: List automated and manual checks.

@@ -18,7 +18,15 @@ It turns tracks, moods, references, and show constraints into stage-ready VJ pac
 corepack prepare pnpm@9.15.9 --activate
 pnpm install
 pnpm typecheck
+pnpm test:unit
+pnpm build
 pnpm dev
+```
+
+Run the full local verification gate with:
+
+```powershell
+pnpm verify
 ```
 
 ## Repository Layout
@@ -34,3 +42,9 @@ docs             Product and architecture docs
 assets           Brand/demo fixtures
 tests            Integration and e2e test placeholders
 ```
+
+## Project Documentation
+
+- [Latest research baseline](docs/product/latest-research-baseline.md)
+- [MVP acceptance criteria](docs/product/mvp-acceptance.md)
+- [Architecture decisions](docs/adr/README.md)

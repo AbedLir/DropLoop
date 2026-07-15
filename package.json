@@ -9,7 +9,8 @@
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "test": "turbo test",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "verify": "pnpm typecheck && pnpm test:unit && pnpm build"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",

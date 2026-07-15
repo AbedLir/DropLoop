@@ -53,6 +53,7 @@ export {
   JobConflictError,
   ProviderError,
   assertJobTransition,
+  assertReserveJobTopology,
   canTransitionJob
 } from "./control-plane";
 export type {

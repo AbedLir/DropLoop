@@ -25,6 +25,16 @@ Workers claim one non-terminal job through `claim_generation_job(worker_id, leas
 
 Every provider submission uses a project-scoped idempotency key and creates a separate `job_attempts` record. Status changes must also pass the TypeScript state-machine guard and an optimistic database update.
 
+Each job is also a traceable work item. `job_timeline_events` is append-only and receives database-triggered events for reservation, state transitions, progress, leases, and provider attempts. Clients may read the timeline through project RLS but cannot write or rewrite audit history.
+
+Jobs may share a `workflow_id` and declare one of three minimal orchestration modes:
+
+- `solo`: one independent job.
+- `pipeline`: a job may wait for completed predecessors in `job_dependencies`.
+- `split`: independent jobs in the same workflow may be claimed in parallel.
+
+The database rejects cross-project, cross-workflow, self-referential, and cyclic dependencies. The claim function skips jobs whose predecessors are not completed.
+
 ## Integration verification
 
 CI starts PostgreSQL 16 and runs:
@@ -34,4 +44,4 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/droploop \
   pnpm --filter @droploop/database test:integration
 ```
 
-This executes the real migrations and verifies idempotent reservation, worker leasing, lease release, and owner-only project visibility under RLS.
+This executes the real migrations and verifies idempotent reservation, dependency-aware leasing, timeline emission, lease release, and owner-only project visibility under RLS.

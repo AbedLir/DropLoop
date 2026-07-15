@@ -1,18 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { JobConflictError } from "@droploop/pipeline";
+import { assertReserveJobTopology, JobConflictError } from "@droploop/pipeline";
 import type {
   CreateAttemptInput,
   DurableJobRepository,
   JobChanges,
   ReserveJobInput
 } from "@droploop/pipeline";
-import { generationJobSchema, jobAttemptSchema } from "@droploop/schemas";
-import type { DurableJobStatus, GenerationJob, JobAttempt } from "@droploop/schemas";
+import { generationJobSchema, jobAttemptSchema, jobTimelineEventSchema } from "@droploop/schemas";
+import type { DurableJobStatus, GenerationJob, JobAttempt, JobTimelineEvent } from "@droploop/schemas";
 import type { DatabaseClient } from "./postgres-client";
 
 type JobRow = {
   id: string;
   project_id: string;
+  workflow_id: string;
+  orchestration_mode: string;
   operation: string;
   idempotency_key: string;
   status: string;
@@ -52,6 +54,19 @@ type AttemptRow = {
   finished_at: Date | string | null;
 };
 
+type TimelineRow = {
+  id: string;
+  sequence: string | number;
+  job_id: string;
+  event_type: string;
+  actor_type: string;
+  actor_id: string | null;
+  from_status: string | null;
+  to_status: string | null;
+  payload: Record<string, unknown>;
+  created_at: Date | string;
+};
+
 const stageByOperation = {
   generate: "generate_video",
   repair: "loop_doctor",
@@ -62,50 +77,86 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
   constructor(private readonly sql: DatabaseClient) {}
 
   async reserveJob(input: ReserveJobInput): Promise<{ job: GenerationJob; created: boolean }> {
-    const rows = (await this.sql.unsafe(
-      `
-        insert into generation_jobs (
-          id,
-          project_id,
-          stage,
-          operation,
-          status,
-          progress,
-          input,
-          idempotency_key,
-          max_attempts
-        )
-        values ($1, $2, $3, $4, 'queued', 0, $5::jsonb, $6, $7)
-        on conflict (project_id, idempotency_key) do nothing
-        returning *
-      `,
-      [
-        randomUUID(),
-        input.projectId,
-        stageByOperation[input.operation],
-        input.operation,
-        JSON.stringify(input.input),
-        input.idempotencyKey,
-        input.maxAttempts ?? 3
-      ]
-    )) as unknown as JobRow[];
+    assertReserveJobTopology(input);
+    const workflowId = input.workflowId ?? randomUUID();
+    const orchestrationMode = input.orchestrationMode ?? "solo";
+    const dependencies = input.dependsOnJobIds ?? [];
 
-    const created = rows[0];
-    if (created) {
-      return { job: mapJob(created), created: true };
-    }
+    return this.sql.begin(async (transaction) => {
+      const rows = (await transaction.unsafe(
+        `
+          insert into generation_jobs (
+            id,
+            project_id,
+            workflow_id,
+            orchestration_mode,
+            stage,
+            operation,
+            status,
+            progress,
+            input,
+            idempotency_key,
+            max_attempts
+          )
+          values ($1, $2, $3, $4, $5, $6, 'queued', 0, $7::jsonb, $8, $9)
+          on conflict (project_id, idempotency_key) do nothing
+          returning *
+        `,
+        [
+          randomUUID(),
+          input.projectId,
+          workflowId,
+          orchestrationMode,
+          stageByOperation[input.operation],
+          input.operation,
+          JSON.stringify(input.input),
+          input.idempotencyKey,
+          input.maxAttempts ?? 3
+        ]
+      )) as unknown as JobRow[];
 
-    const existing = (await this.sql.unsafe(
-      "select * from generation_jobs where project_id = $1 and idempotency_key = $2 limit 1",
-      [input.projectId, input.idempotencyKey]
-    )) as unknown as JobRow[];
+      const created = rows[0];
+      if (created) {
+        for (const dependencyId of dependencies) {
+          await transaction.unsafe(
+            "insert into job_dependencies (job_id, depends_on_job_id) values ($1, $2)",
+            [created.id, dependencyId]
+          );
+        }
+        return { job: mapJob(created), created: true };
+      }
 
-    const row = existing[0];
-    if (!row) {
-      throw new JobConflictError(`Unable to reserve or find idempotent job ${input.idempotencyKey}.`);
-    }
+      const existing = (await transaction.unsafe(
+        "select * from generation_jobs where project_id = $1 and idempotency_key = $2 limit 1",
+        [input.projectId, input.idempotencyKey]
+      )) as unknown as JobRow[];
 
-    return { job: mapJob(row), created: false };
+      const row = existing[0];
+      if (!row) {
+        throw new JobConflictError(`Unable to reserve or find idempotent job ${input.idempotencyKey}.`);
+      }
+
+      const existingDependencies = (await transaction.unsafe(
+        "select depends_on_job_id from job_dependencies where job_id = $1 order by depends_on_job_id",
+        [row.id]
+      )) as unknown as Array<{ depends_on_job_id: string }>;
+      const existingDependencyIds = existingDependencies.map((dependency) => dependency.depends_on_job_id).sort();
+      const requestedDependencyIds = [...dependencies].sort();
+
+      if (
+        row.operation !== input.operation ||
+        row.orchestration_mode !== orchestrationMode ||
+        (input.workflowId !== undefined && row.workflow_id !== input.workflowId) ||
+        existingDependencyIds.length !== requestedDependencyIds.length ||
+        existingDependencyIds.some((dependencyId, index) => dependencyId !== requestedDependencyIds[index])
+      ) {
+        throw new JobConflictError(
+          `Idempotency key ${input.idempotencyKey} is already reserved with a different workflow topology.`
+        );
+      }
+
+      return { job: mapJob(row), created: false };
+    });
   }
 
   async getJob(jobId: string): Promise<GenerationJob | null> {
@@ -236,12 +287,30 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
     }
     return mapAttempt(row);
   }
+
+  async listJobTimeline(jobId: string, afterSequence = 0, limit = 100): Promise<JobTimelineEvent[]> {
+    const boundedLimit = Math.min(Math.max(limit, 1), 200);
+    const rows = (await this.sql.unsafe(
+      `
+        select *
+        from job_timeline_events
+        where job_id = $1 and sequence > $2
+        order by sequence asc
+        limit $3
+      `,
+      [jobId, afterSequence, boundedLimit]
+    )) as unknown as TimelineRow[];
+
+    return rows.map(mapTimelineEvent);
+  }
 }
 
 function mapJob(row: JobRow): GenerationJob {
   return generationJobSchema.parse({
     id: row.id,
     projectId: row.project_id,
+    workflowId: row.workflow_id,
+    orchestrationMode: row.orchestration_mode,
     operation: row.operation,
     idempotencyKey: row.idempotency_key,
     status: row.status,
@@ -263,6 +332,21 @@ function mapJob(row: JobRow): GenerationJob {
     ...(row.started_at ? { startedAt: toIso(row.started_at) } : {}),
     ...(row.completed_at ? { completedAt: toIso(row.completed_at) } : {}),
     ...(row.cancelled_at ? { cancelledAt: toIso(row.cancelled_at) } : {})
+  });
+}
+
+function mapTimelineEvent(row: TimelineRow): JobTimelineEvent {
+  return jobTimelineEventSchema.parse({
+    id: row.id,
+    sequence: Number(row.sequence),
+    jobId: row.job_id,
+    eventType: row.event_type,
+    actorType: row.actor_type,
+    ...(row.actor_id ? { actorId: row.actor_id } : {}),
+    ...(row.from_status ? { fromStatus: row.from_status } : {}),
+    ...(row.to_status ? { toStatus: row.to_status } : {}),
+    payload: row.payload,
+    createdAt: toIso(row.created_at)
   });
 }
 

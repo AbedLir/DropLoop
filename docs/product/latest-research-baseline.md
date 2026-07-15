@@ -17,6 +17,13 @@ Source files are stored in the project Drive:
 - [Validation report](https://drive.google.com/file/d/1jkf6YTrDMfUrFJKxl9c2XPAGjnuuiIP2/view)
 - [Research audio](https://drive.google.com/file/d/1fofhAIxE53fP_RdUzWqfvq9x5ecg-5oG/view)
 
+An additional architecture reference was added after the initial research synthesis:
+
+- [Octo reference supplied by the product owner](https://zhuanlan.zhihu.com/p/2025742871463047868)
+- [Octo Matter implementation](https://github.com/Mininglamp-OSS/octo-matter)
+
+DropLoop adopts the narrow concepts that strengthen the offline production path: a durable work item with a traceable timeline, sequential Pipeline dependencies, parallel Split batches, and a separate human judgment boundary. It does not adopt Octo's IM surface or become a general multi-agent collaboration platform.
+
 ## Product decision
 
 DropLoop is an offline VJ content-production workbench, not a live AI performance engine.

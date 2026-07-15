@@ -35,6 +35,21 @@ export const durableJobStatusSchema = z.enum([
 
 export const jobOperationSchema = z.enum(["generate", "repair", "export"]);
 
+export const orchestrationModeSchema = z.enum(["solo", "pipeline", "split"]);
+
+export const jobTimelineEventTypeSchema = z.enum([
+  "job_reserved",
+  "dependency_added",
+  "status_changed",
+  "progress_changed",
+  "lease_claimed",
+  "lease_released",
+  "attempt_started",
+  "attempt_updated"
+]);
+
+export const jobTimelineActorTypeSchema = z.enum(["system", "worker", "provider", "user"]);
+
 export const jobErrorCategorySchema = z.enum([
   "provider_rejected",
   "provider_timeout",
@@ -367,6 +382,8 @@ export const clipReviewSchema = z.object({
 export const generationJobSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
+  workflowId: z.string().min(1),
+  orchestrationMode: orchestrationModeSchema,
   operation: jobOperationSchema,
   idempotencyKey: z.string().min(1),
   status: durableJobStatusSchema,
@@ -404,6 +421,19 @@ export const jobAttemptSchema = z.object({
   errorMessage: z.string().optional(),
   startedAt: z.string(),
   finishedAt: z.string().optional()
+});
+
+export const jobTimelineEventSchema = z.object({
+  id: z.string().min(1),
+  sequence: z.number().int().positive(),
+  jobId: z.string().min(1),
+  eventType: jobTimelineEventTypeSchema,
+  actorType: jobTimelineActorTypeSchema,
+  actorId: z.string().min(1).optional(),
+  fromStatus: durableJobStatusSchema.optional(),
+  toStatus: durableJobStatusSchema.optional(),
+  payload: z.record(z.unknown()),
+  createdAt: z.string()
 });
 
 export const providerSubmissionSchema = z.object({
@@ -474,9 +504,13 @@ export type ClipReview = z.infer<typeof clipReviewSchema>;
 export type ExportPresetDetail = z.infer<typeof exportPresetDetailSchema>;
 export type DurableJobStatus = z.infer<typeof durableJobStatusSchema>;
 export type JobOperation = z.infer<typeof jobOperationSchema>;
+export type OrchestrationMode = z.infer<typeof orchestrationModeSchema>;
 export type JobErrorCategory = z.infer<typeof jobErrorCategorySchema>;
 export type ProviderJobStatus = z.infer<typeof providerJobStatusSchema>;
 export type GenerationJob = z.infer<typeof generationJobSchema>;
 export type JobAttempt = z.infer<typeof jobAttemptSchema>;
+export type JobTimelineEventType = z.infer<typeof jobTimelineEventTypeSchema>;
+export type JobTimelineActorType = z.infer<typeof jobTimelineActorTypeSchema>;
+export type JobTimelineEvent = z.infer<typeof jobTimelineEventSchema>;
 export type ProviderSubmission = z.infer<typeof providerSubmissionSchema>;
 export type ProviderJobSnapshot = z.infer<typeof providerJobSnapshotSchema>;

@@ -2,6 +2,7 @@ import {
   DurableJobController,
   JobConflictError,
   ProviderError,
+  assertReserveJobTopology,
   canTransitionJob
 } from "@droploop/pipeline";
 import type {
@@ -13,11 +14,20 @@ import type {
   ReserveJobInput,
   VideoProvider
 } from "@droploop/pipeline";
-import { generationJobSchema, jobAttemptSchema, providerJobSnapshotSchema, providerSubmissionSchema } from "@droploop/schemas";
+import {
+  generationJobSchema,
+  jobAttemptSchema,
+  jobTimelineEventSchema,
+  providerJobSnapshotSchema,
+  providerSubmissionSchema
+} from "@droploop/schemas";
 import type {
   DurableJobStatus,
   GenerationJob,
   JobAttempt,
+  JobTimelineActorType,
+  JobTimelineEvent,
+  JobTimelineEventType,
   ProviderJobSnapshot,
   ProviderSubmission
 } from "@droploop/schemas";
@@ -57,6 +67,63 @@ describe("durable control plane", () => {
     expect(duplicate.created).toBe(false);
     expect(duplicate.job.id).toBe(first.job.id);
     expect(repository.jobs.size).toBe(1);
+
+    await expect(controller.enqueue({ ...input, orchestrationMode: "split" })).rejects.toThrow(
+      "different workflow topology"
+    );
+  });
+
+  it("keeps dependent pipeline work blocked while split work remains claimable", async () => {
+    const repository = new MemoryJobRepository();
+    const workflowId = "workflow-1";
+    const first = await repository.reserveJob({
+      ...jobInput(),
+      workflowId,
+      orchestrationMode: "pipeline",
+      idempotencyKey: "pipeline:first"
+    });
+    const second = await repository.reserveJob({
+      ...jobInput(),
+      workflowId,
+      orchestrationMode: "pipeline",
+      dependsOnJobIds: [first.job.id],
+      idempotencyKey: "pipeline:second"
+    });
+    const split = await repository.reserveJob({
+      ...jobInput(),
+      workflowId: "workflow-split",
+      orchestrationMode: "split",
+      idempotencyKey: "split:one"
+    });
+
+    const claimedFirst = await repository.claimNextJob("worker-1", 60);
+    expect(claimedFirst?.id).toBe(first.job.id);
+
+    const claimedSplit = await repository.claimNextJob("worker-2", 60);
+    expect(claimedSplit?.id).toBe(split.job.id);
+    expect(claimedSplit?.id).not.toBe(second.job.id);
+
+    await repository.updateJob(first.job.id, ["queued"], { status: "completed" });
+    const claimedSecond = await repository.claimNextJob("worker-3", 60);
+    expect(claimedSecond?.id).toBe(second.job.id);
+  });
+
+  it("rejects dependency declarations outside a shared pipeline workflow", () => {
+    expect(() =>
+      assertReserveJobTopology({
+        ...jobInput(),
+        orchestrationMode: "split",
+        dependsOnJobIds: ["job-1"]
+      })
+    ).toThrow("split jobs cannot declare dependencies");
+
+    expect(() =>
+      assertReserveJobTopology({
+        ...jobInput(),
+        orchestrationMode: "pipeline",
+        dependsOnJobIds: ["job-1"]
+      })
+    ).toThrow("must declare their shared workflow ID");
   });
 
   it("submits and polls through the same provider-backed state machine", async () => {
@@ -82,6 +149,20 @@ describe("durable control plane", () => {
     expect(downloading.progress).toBe(100);
     expect(downloading.costUsd).toBe(0.42);
     expect(repository.attempts[0]?.status).toBe("completed");
+
+    const timeline = await controller.listTimeline(job.id);
+    expect(timeline.map((event) => event.eventType)).toEqual([
+      "job_reserved",
+      "status_changed",
+      "attempt_started",
+      "status_changed",
+      "attempt_updated",
+      "status_changed"
+    ]);
+    expect(timeline.at(-1)).toMatchObject({
+      fromStatus: "provider_running",
+      toStatus: "downloading"
+    });
   });
 
   it("records failed attempts and stops retrying at the configured limit", async () => {
@@ -164,21 +245,41 @@ class FakeProvider implements VideoProvider {
 class MemoryJobRepository implements DurableJobRepository {
   readonly jobs = new Map<string, GenerationJob>();
   readonly attempts: JobAttempt[] = [];
+  readonly dependencies = new Map<string, Set<string>>();
+  readonly timeline: JobTimelineEvent[] = [];
   private jobSequence = 0;
   private attemptSequence = 0;
+  private eventSequence = 0;
 
   async reserveJob(input: ReserveJobInput): Promise<{ job: GenerationJob; created: boolean }> {
+    assertReserveJobTopology(input);
     const existing = Array.from(this.jobs.values()).find(
       (job) => job.projectId === input.projectId && job.idempotencyKey === input.idempotencyKey
     );
     if (existing) {
+      const existingDependencies = Array.from(this.dependencies.get(existing.id) ?? []).sort();
+      const requestedDependencies = [...(input.dependsOnJobIds ?? [])].sort();
+      if (
+        existing.operation !== input.operation ||
+        existing.orchestrationMode !== (input.orchestrationMode ?? "solo") ||
+        (input.workflowId !== undefined && existing.workflowId !== input.workflowId) ||
+        existingDependencies.length !== requestedDependencies.length ||
+        existingDependencies.some((dependencyId, index) => dependencyId !== requestedDependencies[index])
+      ) {
+        throw new JobConflictError(
+          `Idempotency key ${input.idempotencyKey} is already reserved with a different workflow topology.`
+        );
+      }
       return { job: existing, created: false };
     }
 
     this.jobSequence += 1;
+    const jobId = `job-${this.jobSequence}`;
     const job = generationJobSchema.parse({
-      id: `job-${this.jobSequence}`,
+      id: jobId,
       projectId: input.projectId,
+      workflowId: input.workflowId ?? `workflow-${this.jobSequence}`,
+      orchestrationMode: input.orchestrationMode ?? "solo",
       operation: input.operation,
       idempotencyKey: input.idempotencyKey,
       status: "queued",
@@ -191,6 +292,20 @@ class MemoryJobRepository implements DurableJobRepository {
       updatedAt: now().toISOString()
     });
     this.jobs.set(job.id, job);
+    this.dependencies.set(job.id, new Set(input.dependsOnJobIds ?? []));
+    this.appendTimeline(job.id, "job_reserved", "system", {
+      toStatus: "queued",
+      payload: {
+        workflowId: job.workflowId,
+        orchestrationMode: job.orchestrationMode,
+        operation: job.operation
+      }
+    });
+    for (const dependencyId of input.dependsOnJobIds ?? []) {
+      this.appendTimeline(job.id, "dependency_added", "system", {
+        payload: { dependsOnJobId: dependencyId }
+      });
+    }
     return { job, created: true };
   }
 
@@ -199,7 +314,14 @@ class MemoryJobRepository implements DurableJobRepository {
   }
 
   async claimNextJob(workerId: string, leaseSeconds: number): Promise<GenerationJob | null> {
-    const job = Array.from(this.jobs.values()).find((candidate) => !["completed", "failed", "cancelled"].includes(candidate.status));
+    const job = Array.from(this.jobs.values()).find((candidate) => {
+      if (["completed", "failed", "cancelled"].includes(candidate.status) || candidate.leasedBy) {
+        return false;
+      }
+      return Array.from(this.dependencies.get(candidate.id) ?? []).every(
+        (dependencyId) => this.jobs.get(dependencyId)?.status === "completed"
+      );
+    });
     if (!job) {
       return null;
     }
@@ -235,6 +357,25 @@ class MemoryJobRepository implements DurableJobRepository {
     next.updatedAt = now().toISOString();
     const parsed = generationJobSchema.parse(next);
     this.jobs.set(jobId, parsed);
+    if (current.status !== parsed.status) {
+      this.appendTimeline(jobId, "status_changed", parsed.leasedBy ? "worker" : "system", {
+        actorId: parsed.leasedBy,
+        fromStatus: current.status,
+        toStatus: parsed.status,
+        payload: { progress: parsed.progress, attemptCount: parsed.attemptCount }
+      });
+    } else if (current.progress !== parsed.progress) {
+      this.appendTimeline(jobId, "progress_changed", parsed.leasedBy ? "worker" : "system", {
+        actorId: parsed.leasedBy,
+        payload: { from: current.progress, to: parsed.progress, status: parsed.status }
+      });
+    }
+    if (current.leasedBy !== parsed.leasedBy) {
+      this.appendTimeline(jobId, parsed.leasedBy ? "lease_claimed" : "lease_released", "worker", {
+        actorId: parsed.leasedBy ?? current.leasedBy,
+        payload: parsed.leasedBy ? { expiresAt: parsed.leaseExpiresAt } : {}
+      });
+    }
     return parsed;
   }
 
@@ -242,6 +383,15 @@ class MemoryJobRepository implements DurableJobRepository {
     this.attemptSequence += 1;
     const attempt = jobAttemptSchema.parse({ id: `attempt-${this.attemptSequence}`, ...input });
     this.attempts.push(attempt);
+    this.appendTimeline(attempt.jobId, "attempt_started", "provider", {
+      actorId: attempt.provider,
+      payload: {
+        attemptNumber: attempt.attemptNumber,
+        provider: attempt.provider,
+        providerJobId: attempt.providerJobId,
+        status: attempt.status
+      }
+    });
     return attempt;
   }
 
@@ -253,6 +403,49 @@ class MemoryJobRepository implements DurableJobRepository {
     const current = this.attempts[index];
     const updated = jobAttemptSchema.parse({ ...current, ...changes });
     this.attempts[index] = updated;
+    this.appendTimeline(updated.jobId, "attempt_updated", "provider", {
+      actorId: updated.provider,
+      payload: {
+        attemptNumber: updated.attemptNumber,
+        providerJobId: updated.providerJobId,
+        status: updated.status,
+        costUsd: updated.costUsd
+      }
+    });
     return updated;
+  }
+
+  async listJobTimeline(jobId: string, afterSequence = 0, limit = 100): Promise<JobTimelineEvent[]> {
+    return this.timeline
+      .filter((event) => event.jobId === jobId && event.sequence > afterSequence)
+      .slice(0, Math.min(Math.max(limit, 1), 200));
+  }
+
+  private appendTimeline(
+    jobId: string,
+    eventType: JobTimelineEventType,
+    actorType: JobTimelineActorType,
+    detail: {
+      actorId?: string;
+      fromStatus?: DurableJobStatus;
+      toStatus?: DurableJobStatus;
+      payload: Record<string, unknown>;
+    }
+  ): void {
+    this.eventSequence += 1;
+    this.timeline.push(
+      jobTimelineEventSchema.parse({
+        id: `event-${this.eventSequence}`,
+        sequence: this.eventSequence,
+        jobId,
+        eventType,
+        actorType,
+        ...(detail.actorId ? { actorId: detail.actorId } : {}),
+        ...(detail.fromStatus ? { fromStatus: detail.fromStatus } : {}),
+        ...(detail.toStatus ? { toStatus: detail.toStatus } : {}),
+        payload: detail.payload,
+        createdAt: now().toISOString()
+      })
+    );
   }
 }

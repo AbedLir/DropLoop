@@ -12,6 +12,8 @@ import type {
   JobAttempt,
   JobErrorCategory,
   JobOperation,
+  JobTimelineEvent,
+  OrchestrationMode,
   ProviderJobSnapshot,
   ProviderSubmission
 } from "@droploop/schemas";
@@ -40,6 +42,9 @@ export interface VideoProvider {
 
 export type ReserveJobInput = {
   projectId: string;
+  workflowId?: string;
+  orchestrationMode?: OrchestrationMode;
+  dependsOnJobIds?: string[];
   operation: JobOperation;
   idempotencyKey: string;
   input: Record<string, unknown>;
@@ -74,6 +79,7 @@ export interface DurableJobRepository {
   updateJob(jobId: string, expectedStatuses: DurableJobStatus[], changes: JobChanges): Promise<GenerationJob>;
   createAttempt(input: CreateAttemptInput): Promise<JobAttempt>;
   updateAttempt(providerJobId: string, changes: Partial<JobAttempt>): Promise<JobAttempt>;
+  listJobTimeline(jobId: string, afterSequence?: number, limit?: number): Promise<JobTimelineEvent[]>;
 }
 
 export class InvalidJobTransitionError extends Error {
@@ -132,7 +138,12 @@ export class DurableJobController {
   ) {}
 
   enqueue(input: ReserveJobInput): Promise<{ job: GenerationJob; created: boolean }> {
+    assertReserveJobTopology(input);
     return this.repository.reserveJob(input);
+  }
+
+  listTimeline(jobId: string, afterSequence = 0, limit = 100): Promise<JobTimelineEvent[]> {
+    return this.repository.listJobTimeline(jobId, afterSequence, limit);
   }
 
   async submitGeneration(jobId: string, input: GenerateVideoInput): Promise<GenerationJob> {
@@ -326,5 +337,23 @@ export class DurableJobController {
       throw new JobConflictError(`Job ${jobId} does not exist.`);
     }
     return generationJobSchema.parse(job);
+  }
+}
+
+export function assertReserveJobTopology(input: ReserveJobInput): void {
+  const mode = input.orchestrationMode ?? "solo";
+  const dependencies = input.dependsOnJobIds ?? [];
+  const uniqueDependencies = new Set(dependencies);
+
+  if (uniqueDependencies.size !== dependencies.length) {
+    throw new JobConflictError("A job cannot declare the same dependency more than once.");
+  }
+
+  if (dependencies.length > 0 && mode !== "pipeline") {
+    throw new JobConflictError(`${mode} jobs cannot declare dependencies; use pipeline orchestration.`);
+  }
+
+  if (dependencies.length > 0 && !input.workflowId) {
+    throw new JobConflictError("Pipeline jobs with dependencies must declare their shared workflow ID.");
   }
 }

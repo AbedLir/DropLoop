@@ -37,18 +37,24 @@ try {
     delete from auth.users;
   `);
 
-  await sql.unsafe(
-    `
-      insert into auth.users (id, email) values
-        ($1, 'one@example.test'),
-        ($2, 'two@example.test');
-
-      insert into projects (id, user_id, name, template, screen_format, pack_size) values
-        ($3, $1, 'Owner one project', 'club_night', '16:9', 12),
-        ($4, $2, 'Owner two project', 'club_night', '16:9', 12);
-    `,
-    [userOne, userTwo, projectOne, projectTwo]
-  );
+  await sql.begin(async (transaction) => {
+    await transaction.unsafe(
+      `
+        insert into auth.users (id, email) values
+          ($1, 'one@example.test'),
+          ($2, 'two@example.test')
+      `,
+      [userOne, userTwo]
+    );
+    await transaction.unsafe(
+      `
+        insert into projects (id, user_id, name, template, screen_format, pack_size) values
+          ($1, $2, 'Owner one project', 'club_night', '16:9', 12),
+          ($3, $4, 'Owner two project', 'club_night', '16:9', 12)
+      `,
+      [projectOne, userOne, projectTwo, userTwo]
+    );
+  });
 
   const repository = new PostgresDurableJobRepository(sql);
   const input = {

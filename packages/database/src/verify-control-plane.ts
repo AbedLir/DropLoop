@@ -369,7 +369,7 @@ try {
       "update storage.objects set name = name || '.changed' where name = $1 returning name",
       [sourceAssetPath]
     )) as unknown as Array<{ name: string }>;
-    assert.deepEqual(overwritten, []);
+    assert.equal(overwritten.length, 0);
   });
 
   const immutableStorageObjects = (await sql.unsafe(

@@ -14,6 +14,8 @@
     "@droploop/pipeline": "workspace:*",
     "@droploop/schemas": "workspace:*",
     "@droploop/ui": "workspace:*",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.109.0",
     "next": "^15.1.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

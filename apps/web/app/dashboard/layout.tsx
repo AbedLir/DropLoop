@@ -1,14 +1,12 @@
 import Link from "next/link";
+import { signOut } from "../auth/actions";
+
+export const dynamic = "force-dynamic";
 
 const links: ReadonlyArray<readonly [label: string, href: string]> = [
   ["Overview", "/dashboard"],
   ["Projects", "/dashboard/projects"],
   ["New Project", "/dashboard/projects/new"],
-  ["Generation", "/dashboard/projects/demo/generation"],
-  ["Review", "/dashboard/projects/demo/review"],
-  ["Loop Doctor", "/dashboard/projects/demo/loop-doctor"],
-  ["Stage Preview", "/dashboard/projects/demo/stage-preview"],
-  ["Export", "/dashboard/projects/demo/export"],
   ["Billing", "/dashboard/billing"]
 ];
 
@@ -24,6 +22,11 @@ export default function DashboardLayout({ children }: Readonly<{ children: React
             </Link>
           ))}
         </nav>
+        <form action={signOut} className="sidebarFooter">
+          <button className="button" type="submit">
+            Sign out
+          </button>
+        </form>
       </aside>
       <main className="main">{children}</main>
     </div>

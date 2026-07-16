@@ -56,20 +56,36 @@ export default function ReviewPage() {
   }, [params.projectId]);
 
   async function applyAction(clipId: string, action: "approve" | "reject" | "repair" | "regenerate") {
-    const response = await fetch(`/api/projects/${params.projectId}/review`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clipId, action })
-    });
-    const result = (await response.json()) as { clipId: string; status: string; action: string; reason: string };
+    setError(null);
 
-    setReviews((current) =>
-      current.map((review) =>
-        review.clipId === result.clipId
-          ? { ...review, status: result.status, recommendedAction: result.action, reason: result.reason }
-          : review
-      )
-    );
+    try {
+      const response = await fetch(`/api/projects/${params.projectId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clipId, action, idempotencyKey: crypto.randomUUID() })
+      });
+      const result = (await response.json()) as {
+        clipId?: string;
+        status?: string;
+        action?: string;
+        reason?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !result.clipId || !result.status || !result.action || !result.reason) {
+        throw new Error(result.error ?? `Review action failed with HTTP ${response.status}`);
+      }
+
+      setReviews((current) =>
+        current.map((review) =>
+          review.clipId === result.clipId
+            ? { ...review, status: result.status!, recommendedAction: result.action!, reason: result.reason! }
+            : review
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown review action error");
+    }
   }
 
   return (

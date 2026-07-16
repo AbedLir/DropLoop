@@ -35,6 +35,15 @@ Apply the Supabase/Postgres control-plane migrations with a server-only `DATABAS
 pnpm --filter @droploop/database migrate
 ```
 
+Authenticated Web routes use Supabase SSR cookies and owner-only RLS. Configure the public project URL and publishable key before opening `/dashboard`:
+
+```powershell
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+The publishable key is safe to expose to the browser because authorization is enforced by Auth and RLS. Never expose `SUPABASE_SERVICE_ROLE_KEY` or `DATABASE_URL` through a `NEXT_PUBLIC_` variable.
+
 ## Repository Layout
 
 ```text

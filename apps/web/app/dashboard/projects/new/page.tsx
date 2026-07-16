@@ -14,7 +14,12 @@ export default function NewProjectPage() {
     setIsSubmitting(true);
     setError(null);
 
-    const payload = Object.fromEntries(formData.entries());
+    const submissionId = crypto.randomUUID();
+    const payload = {
+      ...Object.fromEntries(formData.entries()),
+      projectId: submissionId,
+      idempotencyKey: submissionId
+    };
 
     try {
       const response = await fetch("/api/projects", {

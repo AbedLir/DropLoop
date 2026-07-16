@@ -12,6 +12,7 @@ const userOne = "00000000-0000-4000-8000-000000000001";
 const userTwo = "00000000-0000-4000-8000-000000000002";
 const projectOne = "10000000-0000-4000-8000-000000000001";
 const projectTwo = "10000000-0000-4000-8000-000000000002";
+const projectThree = "10000000-0000-4000-8000-000000000003";
 const pipelineWorkflow = "20000000-0000-4000-8000-000000000001";
 
 try {
@@ -21,7 +22,9 @@ try {
 
   await sql.unsafe(`
     grant usage on schema public, auth to authenticated;
-    grant select, insert, update, delete on users_profile, projects, project_assets, generation_jobs, clips, review_actions, exports to authenticated;
+    grant select, insert, update, delete on users_profile, projects, project_assets to authenticated;
+    grant select, insert on generation_jobs to authenticated;
+    grant select on clips, review_actions, exports to authenticated;
     grant select on job_attempts, job_dependencies, job_timeline_events to authenticated;
 
     delete from job_timeline_events;
@@ -129,6 +132,140 @@ try {
     /cycle/
   );
 
+  let persistedClipId = "";
+  let reviewJobId = "";
+  await sql.begin(async (transaction) => {
+    await transaction.unsafe("set local role authenticated");
+    await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
+
+    const createdProjects = (await transaction.unsafe(
+      `
+        select id, user_id, creation_key
+        from create_project_with_clips(
+          $1,
+          $2,
+          'Persisted Web project',
+          'club_night',
+          'warehouse techno',
+          132,
+          '16:9',
+          12,
+          'steel tunnels and red haze',
+          'club LED wall',
+          $3::jsonb,
+          $4::jsonb
+        )
+      `,
+      [
+        projectThree,
+        "web-project:create:one",
+        JSON.stringify({ brief: { projectName: "Persisted Web project" }, clips: [], stageResults: [] }),
+        JSON.stringify([
+          {
+            planned_clip_id: "drop-1",
+            role: "drop",
+            energy: 92,
+            status: "generated",
+            preview_url: "/mock/clips/drop-1.mp4",
+            thumbnail_url: "/mock/thumbnails/drop-1.jpg",
+            duration_seconds: 8,
+            loop_score: 90,
+            quality_score: 88,
+            review_recommended_action: "approve",
+            review_reason: "Passes automated gates; awaiting human judgment."
+          }
+        ])
+      ]
+    )) as unknown as Array<{ id: string; user_id: string; creation_key: string }>;
+
+    assert.equal(createdProjects[0]?.id, projectThree);
+    assert.equal(createdProjects[0]?.user_id, userOne);
+
+    const duplicateProjects = (await transaction.unsafe(
+      `
+        select id
+        from create_project_with_clips(
+          $1,
+          $2,
+          'Persisted Web project',
+          'club_night',
+          'warehouse techno',
+          132,
+          '16:9',
+          12,
+          'steel tunnels and red haze',
+          'club LED wall',
+          '{}'::jsonb,
+          '[]'::jsonb
+        )
+      `,
+      [projectThree, "web-project:create:one"]
+    )) as unknown as Array<{ id: string }>;
+    assert.equal(duplicateProjects[0]?.id, projectThree);
+
+    const clips = (await transaction.unsafe(
+      "select id, status from clips where project_id = $1 and planned_clip_id = 'drop-1'",
+      [projectThree]
+    )) as unknown as Array<{ id: string; status: string }>;
+    persistedClipId = clips[0]?.id ?? "";
+    assert.ok(persistedClipId);
+    assert.equal(clips[0]?.status, "generated");
+
+    const firstReview = (await transaction.unsafe(
+      "select * from apply_clip_review_action($1, $2, 'repair', 'Visible loop seam', $3)",
+      [projectThree, persistedClipId, "web-review:repair:one"]
+    )) as unknown as Array<{
+      review_status: string;
+      clip_status: string;
+      job_id: string;
+    }>;
+    assert.equal(firstReview[0]?.review_status, "repair_requested");
+    assert.equal(firstReview[0]?.clip_status, "repairing");
+    reviewJobId = firstReview[0]?.job_id ?? "";
+    assert.ok(reviewJobId);
+
+    const duplicateReview = (await transaction.unsafe(
+      "select * from apply_clip_review_action($1, $2, 'repair', 'Visible loop seam', $3)",
+      [projectThree, persistedClipId, "web-review:repair:one"]
+    )) as unknown as Array<{ job_id: string }>;
+    assert.equal(duplicateReview[0]?.job_id, reviewJobId);
+  });
+
+  const reviewCounts = (await sql.unsafe(
+    `
+      select
+        (select count(*)::integer from review_actions where project_id = $1) as action_count,
+        (select count(*)::integer from generation_jobs where id = $2) as job_count,
+        (select count(*)::integer from job_timeline_events where job_id = $2 and event_type = 'job_reserved') as timeline_count
+    `,
+    [projectThree, reviewJobId]
+  )) as unknown as Array<{ action_count: number; job_count: number; timeline_count: number }>;
+  assert.deepEqual(reviewCounts[0], { action_count: 1, job_count: 1, timeline_count: 1 });
+
+  await assert.rejects(
+    sql.begin(async (transaction) => {
+      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
+      await transaction.unsafe(
+        "select * from apply_clip_review_action($1, $2, 'approve', '', 'web-review:approve:while-repairing')",
+        [projectThree, persistedClipId]
+      );
+    }),
+    /clip already has an active durable job/
+  );
+
+  await assert.rejects(
+    sql.begin(async (transaction) => {
+      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userTwo]);
+      await transaction.unsafe(
+        "select * from apply_clip_review_action($1, $2, 'approve', '', 'web-review:foreign')",
+        [projectThree, persistedClipId]
+      );
+    }),
+    /clip not found for authenticated project owner/
+  );
+
   const foreignJob = await repository.reserveJob({
     ...input,
     projectId: projectTwo,
@@ -148,7 +285,9 @@ try {
     assert.equal(visibleTimeline.some((row) => row.job_id === first.job.id), true);
   });
 
-  console.log("Database migrations, idempotency, dependency-aware leasing, timeline, and project RLS verified.");
+  console.log(
+    "Database migrations, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
+  );
 } finally {
   await sql.end();
 }

@@ -1,0 +1,295 @@
+import type { ProjectPipelineInput, ProjectPipelineResult } from "@droploop/pipeline";
+import { projectSchema, reviewActionSchema, type Project, type ReviewAction } from "@droploop/schemas";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
+import { ApiError } from "../api-errors";
+
+const projectRowSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  name: z.string(),
+  status: projectSchema.shape.status,
+  template: projectSchema.shape.template,
+  music_genre: z.string().nullable(),
+  bpm: z.number().int().positive().nullable(),
+  screen_format: projectSchema.shape.screenFormat,
+  pack_size: projectSchema.shape.packSize,
+  pipeline_snapshot: z.unknown(),
+  created_at: z.string(),
+  updated_at: z.string()
+});
+
+const clipRowSchema = z.object({
+  id: z.string().uuid(),
+  planned_clip_id: z.string(),
+  role: z.string(),
+  status: z.string(),
+  loop_score: z.number().nullable(),
+  quality_score: z.number().nullable(),
+  duration_seconds: z.number().int().positive().nullable(),
+  review_recommended_action: reviewActionSchema.nullable(),
+  review_reason: z.string().nullable()
+});
+
+const jobRowSchema = z.object({
+  id: z.string().uuid(),
+  stage: z.string(),
+  operation: z.string(),
+  status: z.string(),
+  progress: z.number().int(),
+  created_at: z.string(),
+  updated_at: z.string()
+});
+
+const reviewActionRowSchema = z.object({
+  clip_id: z.string().uuid(),
+  action: reviewActionSchema,
+  reason: z.string().nullable(),
+  created_at: z.string()
+});
+
+const reviewResultRowSchema = z.object({
+  clip_id: z.string().uuid(),
+  action: reviewActionSchema,
+  review_status: z.enum(["approved", "rejected", "repair_requested", "regenerate_requested"]),
+  clip_status: z.string(),
+  reason: z.string(),
+  job_id: z.string().uuid().nullable(),
+  created_at: z.string()
+});
+
+export type PersistedClip = z.infer<typeof clipRowSchema>;
+export type PersistedJob = z.infer<typeof jobRowSchema>;
+
+export type PersistedProjectDetail = {
+  project: Project;
+  pipeline: ProjectPipelineResult | null;
+  clips: PersistedClip[];
+  jobs: PersistedJob[];
+};
+
+export type PersistedReview = {
+  clipId: string;
+  status: "pending" | "approved" | "rejected" | "repair_requested" | "regenerate_requested";
+  recommendedAction: ReviewAction;
+  reason: string;
+};
+
+export type AppliedReview = z.infer<typeof reviewResultRowSchema>;
+
+export class SupabaseProjectStore {
+  constructor(private readonly client: SupabaseClient) {}
+
+  async listProjects(): Promise<Project[]> {
+    const { data, error } = await this.client.from("projects").select("*").order("updated_at", { ascending: false });
+    assertSupabaseSuccess(error, "Unable to list projects.");
+    return z.array(projectRowSchema).parse(data ?? []).map(mapProject);
+  }
+
+  async createProject(
+    userId: string,
+    creationKey: string,
+    input: ProjectPipelineInput,
+    pipeline: ProjectPipelineResult
+  ): Promise<Project> {
+    const promptsByClipId = new Map(pipeline.prompts.map((prompt) => [prompt.clipId, prompt]));
+    const reviewsByClipId = new Map(pipeline.reviewQueue.map((review) => [review.clipId, review]));
+    const persistedClips = pipeline.clips.map((clip) => {
+      const prompt = promptsByClipId.get(clip.clipId);
+      const review = reviewsByClipId.get(clip.id);
+
+      return {
+        planned_clip_id: clip.clipId,
+        role: clip.role,
+        energy: prompt?.energy ?? 0,
+        status: clip.status,
+        preview_url: clip.previewUrl,
+        thumbnail_url: clip.thumbnailUrl,
+        duration_seconds: clip.durationSeconds,
+        loop_score: clip.loopScore,
+        quality_score: clip.qualityScore,
+        review_recommended_action: review?.recommendedAction ?? "approve",
+        review_reason: review?.reason ?? "Awaiting human review."
+      };
+    });
+
+    const { data, error } = await this.client
+      .rpc("create_project_with_clips", {
+        p_project_id: input.projectId,
+        p_creation_key: creationKey,
+        p_name: input.projectName,
+        p_template: input.template,
+        p_music_genre: input.musicGenre,
+        p_bpm: input.bpm,
+        p_screen_format: input.screenFormat,
+        p_pack_size: input.packSize,
+        p_desired_mood: input.desiredMood,
+        p_show_type: input.showType,
+        p_pipeline_snapshot: pipeline,
+        p_clips: persistedClips
+      })
+      .single();
+
+    assertSupabaseSuccess(error, "Unable to persist the project workspace.");
+    const project = mapProject(projectRowSchema.parse(data));
+
+    if (project.userId !== userId) {
+      throw new ApiError(403, "Persisted project owner does not match the authenticated user.", "project_owner_mismatch");
+    }
+
+    return project;
+  }
+
+  async getProject(projectId: string): Promise<PersistedProjectDetail | null> {
+    const [projectResult, clipsResult, jobsResult] = await Promise.all([
+      this.client.from("projects").select("*").eq("id", projectId).maybeSingle(),
+      this.client
+        .from("clips")
+        .select(
+          "id, planned_clip_id, role, status, loop_score, quality_score, duration_seconds, review_recommended_action, review_reason"
+        )
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: true }),
+      this.client
+        .from("generation_jobs")
+        .select("id, stage, operation, status, progress, created_at, updated_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: true })
+    ]);
+
+    assertSupabaseSuccess(projectResult.error, "Unable to load the project.");
+    assertSupabaseSuccess(clipsResult.error, "Unable to load project clips.");
+    assertSupabaseSuccess(jobsResult.error, "Unable to load project jobs.");
+
+    if (!projectResult.data) {
+      return null;
+    }
+
+    const row = projectRowSchema.parse(projectResult.data);
+    const pipeline = isPipelineSnapshot(row.pipeline_snapshot) ? row.pipeline_snapshot : null;
+    return {
+      project: mapProject(row),
+      pipeline,
+      clips: z.array(clipRowSchema).parse(clipsResult.data ?? []),
+      jobs: z.array(jobRowSchema).parse(jobsResult.data ?? [])
+    };
+  }
+
+  async listReviews(projectId: string): Promise<{ reviews: PersistedReview[]; clips: PersistedClip[] } | null> {
+    const projectResult = await this.client.from("projects").select("id").eq("id", projectId).maybeSingle();
+    assertSupabaseSuccess(projectResult.error, "Unable to load the review project.");
+
+    if (!projectResult.data) {
+      return null;
+    }
+
+    const [clipsResult, actionsResult] = await Promise.all([
+      this.client
+        .from("clips")
+        .select(
+          "id, planned_clip_id, role, status, loop_score, quality_score, duration_seconds, review_recommended_action, review_reason"
+        )
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: true }),
+      this.client
+        .from("review_actions")
+        .select("clip_id, action, reason, created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+    ]);
+
+    assertSupabaseSuccess(clipsResult.error, "Unable to load review clips.");
+    assertSupabaseSuccess(actionsResult.error, "Unable to load review history.");
+
+    const clips = z.array(clipRowSchema).parse(clipsResult.data ?? []);
+    const actions = z.array(reviewActionRowSchema).parse(actionsResult.data ?? []);
+    const latestByClip = new Map<string, z.infer<typeof reviewActionRowSchema>>();
+    actions.forEach((action) => {
+      if (!latestByClip.has(action.clip_id)) {
+        latestByClip.set(action.clip_id, action);
+      }
+    });
+
+    return {
+      clips,
+      reviews: clips.map((clip) => {
+        const latest = latestByClip.get(clip.id);
+        return {
+          clipId: clip.id,
+          status: latest ? mapReviewStatus(latest.action) : "pending",
+          recommendedAction: clip.review_recommended_action ?? "approve",
+          reason: latest?.reason ?? clip.review_reason ?? "Awaiting human review."
+        };
+      })
+    };
+  }
+
+  async applyReview(input: {
+    projectId: string;
+    clipId: string;
+    action: ReviewAction;
+    reason?: string;
+    idempotencyKey: string;
+  }): Promise<AppliedReview> {
+    const { data, error } = await this.client
+      .rpc("apply_clip_review_action", {
+        p_project_id: input.projectId,
+        p_clip_id: input.clipId,
+        p_action: input.action,
+        p_reason: input.reason ?? "",
+        p_idempotency_key: input.idempotencyKey
+      })
+      .single();
+
+    assertSupabaseSuccess(error, "Unable to apply the review action.");
+    return reviewResultRowSchema.parse(data);
+  }
+}
+
+function assertSupabaseSuccess(error: { message: string; code?: string } | null, message: string): asserts error is null {
+  if (!error) {
+    return;
+  }
+
+  const status = {
+    PGRST116: 404,
+    P0002: 404,
+    "42501": 403,
+    "23505": 409
+  }[error.code ?? ""] ?? 502;
+  throw new ApiError(status, message, error.code ?? "supabase_data_error");
+}
+
+function mapProject(row: z.infer<typeof projectRowSchema>): Project {
+  return projectSchema.parse({
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    status: row.status,
+    template: row.template,
+    musicGenre: row.music_genre ?? undefined,
+    bpm: row.bpm ?? undefined,
+    screenFormat: row.screen_format,
+    packSize: row.pack_size,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  });
+}
+
+function mapReviewStatus(action: ReviewAction): PersistedReview["status"] {
+  return {
+    approve: "approved",
+    reject: "rejected",
+    repair: "repair_requested",
+    regenerate: "regenerate_requested"
+  }[action] as PersistedReview["status"];
+}
+
+function isPipelineSnapshot(value: unknown): value is ProjectPipelineResult {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return Boolean(candidate.brief && Array.isArray(candidate.clips) && Array.isArray(candidate.stageResults));
+}

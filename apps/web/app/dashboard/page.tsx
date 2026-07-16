@@ -1,21 +1,20 @@
-import { createDemoWorkspace } from "@droploop/pipeline";
+import { SupabaseProjectStore } from "../../lib/projects/project-store";
+import { requireAuthenticatedSupabase } from "../../lib/supabase/auth";
 
 export default async function DashboardPage() {
-  const workspace = await createDemoWorkspace();
-  const approved = workspace.reviewQueue.filter((review) => review.status === "approved").length;
-  const avgLoop = Math.round(workspace.clips.reduce((sum, clip) => sum + clip.loopScore, 0) / workspace.clips.length);
-
+  const { client } = await requireAuthenticatedSupabase();
+  const projects = await new SupabaseProjectStore(client).listProjects();
   const metrics = [
-    ["Active packs", "1"],
-    ["Mock clips", String(workspace.clips.length)],
-    ["Avg loop score", String(avgLoop)],
-    ["Approved clips", String(approved)]
+    ["Persisted projects", String(projects.length)],
+    ["In generation", String(projects.filter((project) => project.status === "generating").length)],
+    ["Awaiting review", String(projects.filter((project) => project.status === "reviewing").length)],
+    ["Exported packs", String(projects.filter((project) => project.status === "exported").length)]
   ];
 
   return (
     <>
       <h1>Production Cockpit</h1>
-      <p className="muted">Track structured VJ pack generation from brief to export.</p>
+      <p className="muted">Authenticated project state backed by Supabase Postgres and owner-only RLS.</p>
       <section className="grid">
         {metrics.map(([label, value]) => (
           <article className="card" key={label}>

@@ -10,8 +10,8 @@ export default function LandingPage() {
           Turn tracks, moods, and references into stage-ready VJ packs.
         </p>
         <div style={{ display: "flex", gap: 12, marginTop: 28 }}>
-          <Link className="button" href="/dashboard">
-            Open cockpit
+          <Link className="button" href="/login">
+            Sign in to cockpit
           </Link>
           <Link className="button" href="/examples">
             View examples

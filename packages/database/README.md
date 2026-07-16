@@ -15,6 +15,7 @@ The runner records each ordered SQL file in `schema_migrations` and applies a mi
 ## Security boundary
 
 - Browser and user-facing API access must use the authenticated Supabase session so RLS applies.
+- Next.js creates a request-scoped `@supabase/ssr` client from Auth cookies and validates identity with `auth.getClaims()`.
 - Workers use the service role only on the server.
 - The service-role key and `DATABASE_URL` must never use a `NEXT_PUBLIC_` prefix or enter client bundles/logs.
 - Project asset object paths must start with the authenticated user ID.
@@ -35,6 +36,15 @@ Jobs may share a `workflow_id` and declare one of three minimal orchestration mo
 
 The database rejects cross-project, cross-workflow, self-referential, and cyclic dependencies. The claim function skips jobs whose predecessors are not completed.
 
+## Authenticated project and review writes
+
+User-facing writes that span multiple tables run through narrow, authenticated database functions:
+
+- `create_project_with_clips` atomically persists the owner project, immutable pipeline snapshot, and relational clip rows. A user-scoped creation key makes retries idempotent.
+- `apply_clip_review_action` atomically records the review audit row, changes clip/project state, and creates a durable `repair` or `generate` job when requested. A review idempotency key prevents duplicate jobs.
+
+Both functions derive the owner from `auth.uid()`. They never accept a caller-supplied user ID, and direct inserts into `review_actions` are disabled for the authenticated role.
+
 ## Integration verification
 
 CI starts PostgreSQL 16 and runs:
@@ -44,4 +54,4 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/droploop \
   pnpm --filter @droploop/database test:integration
 ```
 
-This executes the real migrations and verifies idempotent reservation, dependency-aware leasing, timeline emission, lease release, and owner-only project visibility under RLS.
+This executes the real migrations and verifies authenticated project/review persistence, idempotent reservation, dependency-aware leasing, timeline emission, lease release, and owner-only project visibility under RLS.

@@ -1,60 +1,45 @@
 import { projectPipelineInputSchema, runProjectMockPipeline } from "@droploop/pipeline";
-import { projectSchema } from "@droploop/schemas";
+import { z } from "zod";
+import { toErrorResponse } from "../../../lib/api-errors";
+import { SupabaseProjectStore } from "../../../lib/projects/project-store";
+import { requireAuthenticatedSupabase } from "../../../lib/supabase/auth";
+
+const persistedProjectRequestSchema = z.object({
+  projectId: z.string().uuid().optional(),
+  idempotencyKey: z.string().min(1).max(200).optional()
+});
 
 export async function GET() {
-  const project = projectSchema.parse({
-    id: "demo",
-    userId: "local-user",
-    name: "Dark Melodic Techno",
-    status: "reviewing",
-    template: "festival_mainstage",
-    musicGenre: "dark melodic techno",
-    bpm: 126,
-    screenFormat: "16:9",
-    packSize: 12,
-    createdAt: new Date(0).toISOString(),
-    updatedAt: new Date(0).toISOString()
-  });
-
-  const workspace = await runProjectMockPipeline({
-    projectId: project.id,
-    projectName: project.name,
-    template: project.template,
-    musicGenre: project.musicGenre ?? "dark melodic techno",
-    bpm: project.bpm ?? 126,
-    showType: "festival LED wall",
-    screenFormat: project.screenFormat,
-    packSize: project.packSize,
-    desiredMood: "dark melodic techno, laser haze, high contrast stage depth",
-    references: ["festival LED wall", "touring DJ support"]
-  });
-
-  return Response.json({ projects: [project], workspace });
+  try {
+    const { client } = await requireAuthenticatedSupabase();
+    const projects = await new SupabaseProjectStore(client).listProjects();
+    return Response.json({ projects });
+  } catch (error) {
+    return toErrorResponse(error);
+  }
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const input = projectPipelineInputSchema.parse({
-    projectId: crypto.randomUUID(),
-    ...body,
-    bpm: Number(body.bpm),
-    packSize: Number(body.packSize),
-    references: parseReferences(body.references)
-  });
+  try {
+    const body = (await request.json()) as Record<string, unknown>;
+    const persistence = persistedProjectRequestSchema.parse(body);
+    const projectId = persistence.projectId ?? crypto.randomUUID();
+    const creationKey = persistence.idempotencyKey ?? projectId;
+    const input = projectPipelineInputSchema.parse({
+      projectId,
+      ...body,
+      bpm: Number(body.bpm),
+      packSize: Number(body.packSize),
+      references: parseReferences(body.references)
+    });
+    const { client, userId } = await requireAuthenticatedSupabase();
+    const pipeline = await runProjectMockPipeline(input);
+    const project = await new SupabaseProjectStore(client).createProject(userId, creationKey, input, pipeline);
 
-  const pipeline = await runProjectMockPipeline(input);
-
-  return Response.json(
-    {
-      project: {
-        id: input.projectId,
-        name: input.projectName,
-        status: "reviewing"
-      },
-      pipeline
-    },
-    { status: 201 }
-  );
+    return Response.json({ project, pipeline }, { status: 201 });
+  } catch (error) {
+    return toErrorResponse(error);
+  }
 }
 
 function parseReferences(value: unknown): string[] {

@@ -51,9 +51,9 @@ try {
     );
     await transaction.unsafe(
       `
-        insert into projects (id, user_id, name, template, screen_format, pack_size) values
-          ($1, $2, 'Owner one project', 'club_night', '16:9', 12),
-          ($3, $4, 'Owner two project', 'club_night', '16:9', 12)
+        insert into projects (id, user_id, creation_key, name, template, screen_format, pack_size) values
+          ($1, $2, 'fixture:owner-one', 'Owner one project', 'club_night', '16:9', 12),
+          ($3, $4, 'fixture:owner-two', 'Owner two project', 'club_night', '16:9', 12)
       `,
       [projectOne, userOne, projectTwo, userTwo]
     );

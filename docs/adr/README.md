@@ -7,5 +7,6 @@
 - [ADR-0005: Supabase SSR identity and transactional Web writes](0005-supabase-ssr-and-transactional-web-writes.md)
 - [ADR-0006: Private immutable media ingestion with trusted probing](0006-private-immutable-media-ingestion.md)
 - [ADR-0007: BPM analysis and selection provenance](0007-bpm-analysis-and-selection-provenance.md)
+- [ADR-0008: Explicit dual video-provider contracts](0008-explicit-dual-video-provider-contracts.md)
 
 ADRs are immutable after acceptance. If a decision changes, add a new ADR that supersedes the old one.

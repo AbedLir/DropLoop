@@ -1,16 +1,13 @@
 import { createDatabaseClient, PostgresDurableJobRepository } from "@droploop/database";
 import { DurableJobController } from "@droploop/pipeline";
 import { clipPromptSchema, generatedClipSchema } from "@droploop/schemas";
-import { MockVideoProvider } from "./providers/mock-video-provider";
-import { SeedanceProvider } from "./providers/seedance-provider";
-import type { VideoProvider } from "./providers/video-provider";
+import { createVideoProvider, selectVideoProviderName } from "./providers/provider-factory";
 
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const leaseSeconds = Number(process.env.JOB_LEASE_SECONDS ?? 60);
 const sql = createDatabaseClient();
 const repository = new PostgresDurableJobRepository(sql);
-const provider = createProvider(process.env.VIDEO_PROVIDER ?? "mock");
-const controller = new DurableJobController(repository, provider);
+const defaultProviderName = process.env.VIDEO_PROVIDER ?? "mock";
 
 try {
   const job = await repository.claimNextJob(workerId, leaseSeconds);
@@ -18,6 +15,8 @@ try {
   if (!job) {
     console.log("No claimable DropLoop jobs.");
   } else {
+    const provider = createVideoProvider(selectVideoProviderName(job.provider, defaultProviderName));
+    const controller = new DurableJobController(repository, provider);
     try {
       if (job.operation === "generate" && job.status === "queued") {
         await controller.submitGeneration(job.id, {
@@ -45,14 +44,4 @@ try {
   }
 } finally {
   await sql.end();
-}
-
-function createProvider(name: string): VideoProvider {
-  if (name === "mock") {
-    return new MockVideoProvider();
-  }
-  if (name === "seedance") {
-    return new SeedanceProvider();
-  }
-  throw new Error(`Unsupported VIDEO_PROVIDER: ${name}`);
 }

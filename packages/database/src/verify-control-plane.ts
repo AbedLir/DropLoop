@@ -159,8 +159,8 @@ try {
       [
         projectThree,
         "web-project:create:one",
-        JSON.stringify({ brief: { projectName: "Persisted Web project" }, clips: [], stageResults: [] }),
-        JSON.stringify([
+        transaction.json({ brief: { projectName: "Persisted Web project" }, clips: [], stageResults: [] } as never),
+        transaction.json([
           {
             planned_clip_id: "drop-1",
             role: "drop",
@@ -174,7 +174,7 @@ try {
             review_recommended_action: "approve",
             review_reason: "Passes automated gates; awaiting human judgment."
           }
-        ])
+        ] as never)
       ]
     )) as unknown as Array<{ id: string; user_id: string; creation_key: string }>;
 

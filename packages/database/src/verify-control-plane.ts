@@ -376,7 +376,8 @@ try {
     "select name from storage.objects where name = $1",
     [sourceAssetPath]
   )) as unknown as Array<{ name: string }>;
-  assert.deepEqual(immutableStorageObjects, [{ name: sourceAssetPath }]);
+  assert.equal(immutableStorageObjects.length, 1);
+  assert.equal(immutableStorageObjects[0]?.name, sourceAssetPath);
 
   const foreignJob = await repository.reserveJob({
     ...input,

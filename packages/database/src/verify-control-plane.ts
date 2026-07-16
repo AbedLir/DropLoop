@@ -23,7 +23,7 @@ try {
   await applyMigrations(sql);
 
   await sql.unsafe(`
-    grant usage on schema public, auth to authenticated;
+    grant usage on schema public, auth, storage to authenticated;
     grant select, insert, update, delete on users_profile, projects, project_assets to authenticated;
     grant select, insert on generation_jobs to authenticated;
     grant select on clips, review_actions, exports to authenticated;

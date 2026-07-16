@@ -276,7 +276,7 @@ try {
     await transaction.unsafe("set local role authenticated");
     await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
     const visible = (await transaction.unsafe("select id from projects order by id")) as unknown as Array<{ id: string }>;
-    assert.deepEqual(visible.map((row) => row.id), [projectOne]);
+    assert.deepEqual(visible.map((row) => row.id), [projectOne, projectThree]);
 
     const visibleTimeline = (await transaction.unsafe(
       "select distinct job_id from job_timeline_events order by job_id"

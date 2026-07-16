@@ -3,6 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "paths": {
+      "@droploop/media": ["../media/src/index.ts"],
       "@droploop/prompts": ["../prompts/src/index.ts"],
       "@droploop/schemas": ["../schemas/src/index.ts"]
     }

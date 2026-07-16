@@ -29,6 +29,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pro
         clipId: clip.planned_clip_id,
         role: clip.role,
         status: clip.status,
+        previewUrl: clip.preview_url?.startsWith(`/api/projects/${projectId}/assets/`) ? clip.preview_url : null,
         loopScore: clip.loop_score ?? 0,
         qualityScore: clip.quality_score ?? 0
       }))

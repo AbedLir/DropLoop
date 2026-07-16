@@ -10,6 +10,8 @@ import type {
   DurableJobRepository,
   GenerateVideoInput,
   JobChanges,
+  RegisteredProviderOutput,
+  RegisterProviderOutputInput,
   RepairVideoInput,
   ReserveJobInput,
   VideoProvider
@@ -148,7 +150,15 @@ describe("durable control plane", () => {
     expect(downloading.status).toBe("downloading");
     expect(downloading.progress).toBe(100);
     expect(downloading.costUsd).toBe(0.42);
+    expect(downloading.providerLatencyMs).toBe(0);
     expect(repository.attempts[0]?.status).toBe("completed");
+    expect(repository.attempts[0]?.result).toEqual({ previewUrl: "/provider/result.mp4" });
+    expect(repository.attempts[0]?.latencyMs).toBe(0);
+
+    const validating = await controller.completeDownload(job.id, "asset-1", 1250);
+    expect(validating).toMatchObject({ status: "validating", outputAssetId: "asset-1", downloadLatencyMs: 1250 });
+    const awaitingReview = await controller.completeValidation(job.id);
+    expect(awaitingReview).toMatchObject({ status: "awaiting_review", progress: 100 });
 
     const timeline = await controller.listTimeline(job.id);
     expect(timeline.map((event) => event.eventType)).toEqual([
@@ -157,11 +167,13 @@ describe("durable control plane", () => {
       "attempt_started",
       "status_changed",
       "attempt_updated",
+      "status_changed",
+      "status_changed",
       "status_changed"
     ]);
     expect(timeline.at(-1)).toMatchObject({
-      fromStatus: "provider_running",
-      toStatus: "downloading"
+      fromStatus: "validating",
+      toStatus: "awaiting_review"
     });
   });
 
@@ -186,6 +198,26 @@ describe("durable control plane", () => {
     expect(terminal.attemptCount).toBe(2);
     expect(repository.attempts.map((attempt) => attempt.status)).toEqual(["failed", "failed"]);
   });
+
+  it("does not enter download when a provider completes without a result", async () => {
+    const repository = new MemoryJobRepository();
+    const controller = new DurableJobController(repository, new FakeProvider(0, true), now);
+    const { job } = await controller.enqueue(jobInput());
+    await controller.submitGeneration(job.id, {
+      projectId: job.projectId,
+      idempotencyKey: job.idempotencyKey,
+      prompt
+    });
+
+    const retry = await controller.refresh(job.id);
+
+    expect(retry).toMatchObject({
+      status: "queued",
+      errorCategory: "provider_rejected",
+      errorMessage: "Provider completed without a downloadable result."
+    });
+    expect(repository.attempts[0]).toMatchObject({ status: "failed", errorCategory: "provider_rejected" });
+  });
 });
 
 function jobInput(): ReserveJobInput {
@@ -203,7 +235,10 @@ class FakeProvider implements VideoProvider {
   readonly model = "fake-v1";
   private submissions = 0;
 
-  constructor(private failuresRemaining = 0) {}
+  constructor(
+    private failuresRemaining = 0,
+    private readonly omitResult = false
+  ) {}
 
   async submitGeneration(_input: GenerateVideoInput): Promise<ProviderSubmission> {
     return this.submit();
@@ -219,7 +254,7 @@ class FakeProvider implements VideoProvider {
       status: "completed",
       progress: 100,
       costUsd: 0.42,
-      result: { previewUrl: "/provider/result.mp4" },
+      ...(this.omitResult ? {} : { result: { previewUrl: "/provider/result.mp4" } }),
       rawResponse: { requestId: "redacted" },
       updatedAt: now().toISOString()
     });
@@ -413,6 +448,30 @@ class MemoryJobRepository implements DurableJobRepository {
       }
     });
     return updated;
+  }
+
+  async getLatestAttempt(jobId: string): Promise<JobAttempt | null> {
+    return this.attempts
+      .filter((attempt) => attempt.jobId === jobId)
+      .sort((left, right) => right.attemptNumber - left.attemptNumber)[0] ?? null;
+  }
+
+  async getProjectOwnerId(_projectId: string): Promise<string | null> {
+    return "owner-1";
+  }
+
+  async registerProviderOutput(input: RegisterProviderOutputInput): Promise<RegisteredProviderOutput> {
+    const job = this.jobs.get(input.jobId);
+    if (!job) throw new JobConflictError(`Missing job ${input.jobId}.`);
+    return {
+      assetId: input.assetId,
+      projectId: job.projectId,
+      jobId: job.id,
+      attemptId: input.attemptId,
+      storageBucket: input.storageBucket,
+      storagePath: input.storagePath,
+      previewUrl: `/api/projects/${job.projectId}/assets/${input.assetId}/content`
+    };
   }
 
   async listJobTimeline(jobId: string, afterSequence = 0, limit = 100): Promise<JobTimelineEvent[]> {

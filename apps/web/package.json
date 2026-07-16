@@ -11,6 +11,7 @@
     "test": "tsc --noEmit"
   },
   "dependencies": {
+    "@droploop/media": "workspace:*",
     "@droploop/pipeline": "workspace:*",
     "@droploop/schemas": "workspace:*",
     "@droploop/ui": "workspace:*",

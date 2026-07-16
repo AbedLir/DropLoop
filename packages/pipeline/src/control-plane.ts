@@ -4,6 +4,7 @@ import {
   providerJobSnapshotSchema,
   providerSubmissionSchema
 } from "@droploop/schemas";
+import type { MediaProbe } from "@droploop/media";
 import type {
   ClipPrompt,
   DurableJobStatus,
@@ -60,6 +61,9 @@ export type JobChanges = {
   providerConfig?: Record<string, unknown> | null;
   attemptCount?: number;
   costUsd?: number;
+  outputAssetId?: string | null;
+  providerLatencyMs?: number | null;
+  downloadLatencyMs?: number | null;
   errorCategory?: JobErrorCategory | null;
   errorMessage?: string | null;
   leasedBy?: string | null;
@@ -71,6 +75,31 @@ export type JobChanges = {
 
 export type CreateAttemptInput = Omit<JobAttempt, "id">;
 
+export type RegisterProviderOutputInput = {
+  assetId: string;
+  jobId: string;
+  attemptId: string;
+  ownerId: string;
+  storageBucket: string;
+  storagePath: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  contentSha256: string;
+  downloadLatencyMs: number;
+  probe: MediaProbe;
+};
+
+export type RegisteredProviderOutput = {
+  assetId: string;
+  projectId: string;
+  jobId: string;
+  attemptId: string;
+  storageBucket: string;
+  storagePath: string;
+  previewUrl: string;
+};
+
 export interface DurableJobRepository {
   reserveJob(input: ReserveJobInput): Promise<{ job: GenerationJob; created: boolean }>;
   getJob(jobId: string): Promise<GenerationJob | null>;
@@ -79,6 +108,9 @@ export interface DurableJobRepository {
   updateJob(jobId: string, expectedStatuses: DurableJobStatus[], changes: JobChanges): Promise<GenerationJob>;
   createAttempt(input: CreateAttemptInput): Promise<JobAttempt>;
   updateAttempt(providerJobId: string, changes: Partial<JobAttempt>): Promise<JobAttempt>;
+  getLatestAttempt(jobId: string): Promise<JobAttempt | null>;
+  getProjectOwnerId(projectId: string): Promise<string | null>;
+  registerProviderOutput(input: RegisterProviderOutputInput): Promise<RegisteredProviderOutput>;
   listJobTimeline(jobId: string, afterSequence?: number, limit?: number): Promise<JobTimelineEvent[]>;
 }
 
@@ -165,20 +197,42 @@ export class DurableJobController {
       throw new JobConflictError(`Job ${job.id} cannot be refreshed from ${job.status}.`);
     }
 
+    const attempt = await this.repository.getLatestAttempt(job.id);
+    if (!attempt || attempt.providerJobId !== job.providerJobId) {
+      throw new JobConflictError(`Job ${job.id} has no matching provider attempt to refresh.`);
+    }
+
     const snapshot = providerJobSnapshotSchema.parse(await this.provider.getJob(job.providerJobId));
+    const latencyMs = calculateLatencyMs(attempt.startedAt, snapshot.updatedAt);
+    const completedWithoutResult = snapshot.status === "completed" && !snapshot.result;
     await this.repository.updateAttempt(snapshot.providerJobId, {
-      status: snapshot.status,
+      status: completedWithoutResult ? "failed" : snapshot.status,
       costUsd: snapshot.costUsd ?? job.costUsd,
+      ...(snapshot.result === undefined ? {} : { result: snapshot.result }),
+      latencyMs,
       ...(snapshot.rawResponse === undefined ? {} : { rawResponse: snapshot.rawResponse }),
-      ...(snapshot.errorCategory === undefined ? {} : { errorCategory: snapshot.errorCategory }),
-      ...(snapshot.errorMessage === undefined ? {} : { errorMessage: snapshot.errorMessage }),
+      ...(completedWithoutResult
+        ? { errorCategory: "provider_rejected", errorMessage: "Provider completed without a downloadable result." }
+        : snapshot.errorCategory === undefined
+          ? {}
+          : { errorCategory: snapshot.errorCategory }),
+      ...(completedWithoutResult
+        ? {}
+        : snapshot.errorMessage === undefined
+          ? {}
+          : { errorMessage: snapshot.errorMessage }),
       ...(["completed", "failed", "cancelled"].includes(snapshot.status) ? { finishedAt: snapshot.updatedAt } : {})
     });
+
+    if (completedWithoutResult) {
+      return this.failOrRetry(job, "provider_rejected", "Provider completed without a downloadable result.");
+    }
 
     if (snapshot.status === "queued" || snapshot.status === "running") {
       return this.repository.updateJob(job.id, ["provider_running"], {
         progress: snapshot.progress,
-        costUsd: snapshot.costUsd ?? job.costUsd
+        costUsd: snapshot.costUsd ?? job.costUsd,
+        providerLatencyMs: latencyMs
       });
     }
 
@@ -186,6 +240,7 @@ export class DurableJobController {
       return this.transition(job, "downloading", {
         progress: Math.max(70, snapshot.progress),
         costUsd: snapshot.costUsd ?? job.costUsd,
+        providerLatencyMs: latencyMs,
         errorCategory: null,
         errorMessage: null
       });
@@ -195,6 +250,7 @@ export class DurableJobController {
       return this.transition(job, "cancelled", {
         progress: snapshot.progress,
         costUsd: snapshot.costUsd ?? job.costUsd,
+        providerLatencyMs: latencyMs,
         errorCategory: "cancelled",
         errorMessage: snapshot.errorMessage ?? "Provider job was cancelled.",
         cancelledAt: snapshot.updatedAt
@@ -231,6 +287,52 @@ export class DurableJobController {
       progress: 0,
       errorCategory: "internal",
       errorMessage: "Recovered after a worker lease expired during provider submission."
+    });
+  }
+
+  async completeDownload(jobId: string, assetId: string, downloadLatencyMs?: number): Promise<GenerationJob> {
+    const job = await this.requireJob(jobId);
+    if (job.status !== "downloading") {
+      throw new JobConflictError(`Job ${job.id} cannot complete a download from ${job.status}.`);
+    }
+    return this.transition(job, "validating", {
+      progress: 85,
+      outputAssetId: assetId,
+      ...(downloadLatencyMs === undefined ? {} : { downloadLatencyMs }),
+      errorCategory: null,
+      errorMessage: null
+    });
+  }
+
+  async completeValidation(jobId: string): Promise<GenerationJob> {
+    const job = await this.requireJob(jobId);
+    if (job.status !== "validating") {
+      throw new JobConflictError(`Job ${job.id} cannot complete validation from ${job.status}.`);
+    }
+    if (!job.outputAssetId) {
+      throw new JobConflictError(`Job ${job.id} has no immutable output asset to validate.`);
+    }
+    return this.transition(job, "awaiting_review", {
+      progress: 100,
+      errorCategory: null,
+      errorMessage: null
+    });
+  }
+
+  async recordDownloadFailure(jobId: string, message: string, retryable: boolean): Promise<GenerationJob> {
+    const job = await this.requireJob(jobId);
+    if (job.status !== "downloading") {
+      throw new JobConflictError(`Job ${job.id} cannot record a download failure from ${job.status}.`);
+    }
+    if (retryable) {
+      return this.repository.updateJob(job.id, ["downloading"], {
+        errorCategory: "download_failed",
+        errorMessage: message
+      });
+    }
+    return this.transition(job, "failed", {
+      errorCategory: "download_failed",
+      errorMessage: message
     });
   }
 
@@ -305,8 +407,7 @@ export class DurableJobController {
       });
     }
 
-    const nextStatus = submission.status === "completed" ? "downloading" : "provider_running";
-    return this.transition(attempting, nextStatus, {
+    return this.transition(attempting, "provider_running", {
       providerJobId: submission.providerJobId,
       progress: submission.status === "completed" ? 70 : 10
     });
@@ -338,6 +439,11 @@ export class DurableJobController {
     }
     return generationJobSchema.parse(job);
   }
+}
+
+function calculateLatencyMs(startedAt: string, finishedAt: string): number {
+  const elapsed = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  return Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
 }
 
 export function assertReserveJobTopology(input: ReserveJobInput): void {

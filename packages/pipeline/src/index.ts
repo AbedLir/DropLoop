@@ -61,6 +61,8 @@ export type {
   DurableJobRepository,
   GenerateVideoInput,
   JobChanges,
+  RegisteredProviderOutput,
+  RegisterProviderOutputInput,
   RepairVideoInput,
   ReserveJobInput,
   VideoProvider

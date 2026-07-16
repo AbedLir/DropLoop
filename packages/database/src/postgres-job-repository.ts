@@ -4,6 +4,8 @@ import type {
   CreateAttemptInput,
   DurableJobRepository,
   JobChanges,
+  RegisteredProviderOutput,
+  RegisterProviderOutputInput,
   ReserveJobInput
 } from "@droploop/pipeline";
 import { generationJobSchema, jobAttemptSchema, jobTimelineEventSchema } from "@droploop/schemas";
@@ -27,6 +29,9 @@ type JobRow = {
   attempt_count: number;
   max_attempts: number;
   cost_usd: string | number;
+  output_asset_id: string | null;
+  provider_latency_ms: string | number | null;
+  download_latency_ms: string | number | null;
   error_category: string | null;
   error_message: string | null;
   leased_by: string | null;
@@ -47,6 +52,8 @@ type AttemptRow = {
   provider_job_id: string | null;
   status: string;
   cost_usd: string | number;
+  provider_result: Record<string, unknown> | string | null;
+  latency_ms: string | number | null;
   raw_response: unknown;
   error_category: string | null;
   error_message: string | null;
@@ -195,6 +202,9 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
           provider_config = case when $2::jsonb ? 'providerConfig' then nullif($2::jsonb -> 'providerConfig', 'null'::jsonb) else provider_config end,
           attempt_count = case when $2::jsonb ? 'attemptCount' then ($2::jsonb ->> 'attemptCount')::integer else attempt_count end,
           cost_usd = case when $2::jsonb ? 'costUsd' then ($2::jsonb ->> 'costUsd')::numeric else cost_usd end,
+          output_asset_id = case when $2::jsonb ? 'outputAssetId' then ($2::jsonb ->> 'outputAssetId')::uuid else output_asset_id end,
+          provider_latency_ms = case when $2::jsonb ? 'providerLatencyMs' then ($2::jsonb ->> 'providerLatencyMs')::bigint else provider_latency_ms end,
+          download_latency_ms = case when $2::jsonb ? 'downloadLatencyMs' then ($2::jsonb ->> 'downloadLatencyMs')::bigint else download_latency_ms end,
           error_category = case when $2::jsonb ? 'errorCategory' then $2::jsonb ->> 'errorCategory' else error_category end,
           error_message = case when $2::jsonb ? 'errorMessage' then $2::jsonb ->> 'errorMessage' else error_message end,
           leased_by = case when $2::jsonb ? 'leasedBy' then $2::jsonb ->> 'leasedBy' else leased_by end,
@@ -231,13 +241,15 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
           provider_job_id,
           status,
           cost_usd,
+          provider_result,
+          latency_ms,
           raw_response,
           error_category,
           error_message,
           started_at,
           finished_at
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::timestamptz, $13::timestamptz)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb, $12, $13, $14::timestamptz, $15::timestamptz)
         returning *
       `,
       [
@@ -249,6 +261,8 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
         input.providerJobId ?? null,
         input.status,
         input.costUsd,
+        input.result === undefined ? null : this.sql.json(input.result as never),
+        input.latencyMs ?? null,
         this.sql.json((input.rawResponse ?? null) as never),
         input.errorCategory ?? null,
         input.errorMessage ?? null,
@@ -271,6 +285,8 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
         set
           status = case when $2::jsonb ? 'status' then $2::jsonb ->> 'status' else status end,
           cost_usd = case when $2::jsonb ? 'costUsd' then ($2::jsonb ->> 'costUsd')::numeric else cost_usd end,
+          provider_result = case when $2::jsonb ? 'result' then nullif($2::jsonb -> 'result', 'null'::jsonb) else provider_result end,
+          latency_ms = case when $2::jsonb ? 'latencyMs' then ($2::jsonb ->> 'latencyMs')::bigint else latency_ms end,
           raw_response = case when $2::jsonb ? 'rawResponse' then $2::jsonb -> 'rawResponse' else raw_response end,
           error_category = case when $2::jsonb ? 'errorCategory' then $2::jsonb ->> 'errorCategory' else error_category end,
           error_message = case when $2::jsonb ? 'errorMessage' then $2::jsonb ->> 'errorMessage' else error_message end,
@@ -286,6 +302,74 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
       throw new JobConflictError(`No attempt exists for provider job ${providerJobId}.`);
     }
     return mapAttempt(row);
+  }
+
+  async getLatestAttempt(jobId: string): Promise<JobAttempt | null> {
+    const rows = (await this.sql.unsafe(
+      "select * from job_attempts where job_id = $1 order by attempt_number desc limit 1",
+      [jobId]
+    )) as unknown as AttemptRow[];
+    return rows[0] ? mapAttempt(rows[0]) : null;
+  }
+
+  async getProjectOwnerId(projectId: string): Promise<string | null> {
+    const rows = (await this.sql.unsafe("select user_id from projects where id = $1 limit 1", [projectId])) as unknown as Array<{
+      user_id: string;
+    }>;
+    return rows[0]?.user_id ?? null;
+  }
+
+  async registerProviderOutput(input: RegisterProviderOutputInput): Promise<RegisteredProviderOutput> {
+    const rows = (await this.sql.unsafe(
+      `
+        select *
+        from register_provider_output(
+          $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9::bigint, $10,
+          $11::bigint, $12::double precision, $13::integer, $14::integer, $15::double precision, $16, $17, $18::boolean
+        )
+      `,
+      [
+        input.assetId,
+        input.jobId,
+        input.attemptId,
+        input.ownerId,
+        input.storageBucket,
+        input.storagePath,
+        input.filename,
+        input.mimeType,
+        input.sizeBytes,
+        input.contentSha256,
+        input.downloadLatencyMs,
+        input.probe.durationSeconds,
+        input.probe.width,
+        input.probe.height,
+        input.probe.frameRate,
+        input.probe.codec,
+        input.probe.pixelFormat,
+        input.probe.hasAlpha
+      ]
+    )) as unknown as Array<{
+      asset_id: string;
+      project_id: string;
+      job_id: string;
+      attempt_id: string;
+      storage_bucket: string;
+      storage_path: string;
+      preview_url: string;
+    }>;
+    const row = rows[0];
+    if (!row) {
+      throw new JobConflictError(`Database did not register provider output for job ${input.jobId}.`);
+    }
+    return {
+      assetId: row.asset_id,
+      projectId: row.project_id,
+      jobId: row.job_id,
+      attemptId: row.attempt_id,
+      storageBucket: row.storage_bucket,
+      storagePath: row.storage_path,
+      previewUrl: row.preview_url
+    };
   }
 
   async listJobTimeline(jobId: string, afterSequence = 0, limit = 100): Promise<JobTimelineEvent[]> {
@@ -323,6 +407,9 @@ function mapJob(row: JobRow): GenerationJob {
     attemptCount: row.attempt_count,
     maxAttempts: row.max_attempts,
     costUsd: Number(row.cost_usd),
+    ...(row.output_asset_id ? { outputAssetId: row.output_asset_id } : {}),
+    ...(row.provider_latency_ms === null ? {} : { providerLatencyMs: Number(row.provider_latency_ms) }),
+    ...(row.download_latency_ms === null ? {} : { downloadLatencyMs: Number(row.download_latency_ms) }),
     ...(row.error_category ? { errorCategory: row.error_category } : {}),
     ...(row.error_message ? { errorMessage: row.error_message } : {}),
     ...(row.leased_by ? { leasedBy: row.leased_by } : {}),
@@ -360,6 +447,8 @@ function mapAttempt(row: AttemptRow): JobAttempt {
     ...(row.provider_job_id ? { providerJobId: row.provider_job_id } : {}),
     status: row.status,
     costUsd: Number(row.cost_usd),
+    ...(row.provider_result === null ? {} : { result: parseJsonObject(row.provider_result) }),
+    ...(row.latency_ms === null ? {} : { latencyMs: Number(row.latency_ms) }),
     ...(row.raw_response === null ? {} : { rawResponse: row.raw_response }),
     ...(row.error_category ? { errorCategory: row.error_category } : {}),
     ...(row.error_message ? { errorMessage: row.error_message } : {}),

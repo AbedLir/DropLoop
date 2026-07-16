@@ -16,6 +16,7 @@ type ReviewPayload = {
     id: string;
     clipId: string;
     role: string;
+    previewUrl: string | null;
     loopScore: number;
     qualityScore: number;
   }>;
@@ -103,6 +104,15 @@ export default function ReviewPage() {
               <p className="muted">
                 {clip?.role ?? "clip"} · Loop {clip?.loopScore ?? 0} · Quality {clip?.qualityScore ?? 0}
               </p>
+              {clip?.previewUrl ? (
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  src={clip.previewUrl}
+                  style={{ width: "100%", borderRadius: 12, background: "#080808" }}
+                />
+              ) : null}
               <p>{review.reason}</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                 {(["approve", "reject", "repair", "regenerate"] as const).map((action) => (

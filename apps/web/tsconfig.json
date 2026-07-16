@@ -6,6 +6,7 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {
+      "@droploop/media": ["../../packages/media/src/index.ts"],
       "@droploop/pipeline": ["../../packages/pipeline/src/index.ts"],
       "@droploop/schemas": ["../../packages/schemas/src/index.ts"],
       "@droploop/ui": ["../../packages/ui/src/index.ts"]

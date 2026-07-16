@@ -15,6 +15,7 @@ const projectTwo = "10000000-0000-4000-8000-000000000002";
 const projectThree = "10000000-0000-4000-8000-000000000003";
 const pipelineWorkflow = "20000000-0000-4000-8000-000000000001";
 const sourceAsset = "30000000-0000-4000-8000-000000000001";
+const providerOutputAsset = "30000000-0000-4000-8000-000000000010";
 const sourceAssetPath = `${userOne}/${projectThree}/sources/${sourceAsset}/source.mp3`;
 
 try {
@@ -90,6 +91,109 @@ try {
     progress: 100,
     completedAt: new Date().toISOString()
   });
+
+  const outputJob = await repository.reserveJob({
+    ...input,
+    idempotencyKey: "project-one:provider-output:v1"
+  });
+  await repository.updateJob(outputJob.job.id, ["queued"], {
+    status: "downloading",
+    provider: "seedance",
+    providerJobId: "provider-output-job-1",
+    providerModel: "doubao-seedance-2-0-260128",
+    attemptCount: 1,
+    providerLatencyMs: 60000,
+    progress: 70
+  });
+  const outputAttempt = await repository.createAttempt({
+    jobId: outputJob.job.id,
+    attemptNumber: 1,
+    provider: "seedance",
+    providerModel: "doubao-seedance-2-0-260128",
+    providerJobId: "provider-output-job-1",
+    status: "completed",
+    costUsd: 0,
+    result: { previewUrl: "https://provider.example/output.mp4" },
+    latencyMs: 60000,
+    startedAt: "2026-07-16T00:00:00.000Z",
+    finishedAt: "2026-07-16T00:01:00.000Z"
+  });
+  const outputSha256 = "c".repeat(64);
+  const outputPath = `${userOne}/${projectOne}/outputs/${outputJob.job.id}/${outputAttempt.id}/${outputSha256}.mp4`;
+  await sql.unsafe("insert into storage.objects (bucket_id, name) values ('project-assets', $1)", [outputPath]);
+  const registeredOutput = await repository.registerProviderOutput({
+    assetId: providerOutputAsset,
+    jobId: outputJob.job.id,
+    attemptId: outputAttempt.id,
+    ownerId: userOne,
+    storageBucket: "project-assets",
+    storagePath: outputPath,
+    filename: `${outputSha256}.mp4`,
+    mimeType: "video/mp4",
+    sizeBytes: 8192,
+    contentSha256: outputSha256,
+    downloadLatencyMs: 4200,
+    probe: {
+      kind: "video",
+      durationSeconds: 8,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      codec: "h264",
+      pixelFormat: "yuv420p",
+      hasAlpha: false,
+      formatName: "mov,mp4",
+      audioCodec: null,
+      videoCodec: "h264"
+    }
+  });
+  assert.equal(registeredOutput.assetId, providerOutputAsset);
+  assert.equal(
+    registeredOutput.previewUrl,
+    `/api/projects/${projectOne}/assets/${providerOutputAsset}/content`
+  );
+  const registeredOutputAgain = await repository.registerProviderOutput({
+    assetId: providerOutputAsset,
+    jobId: outputJob.job.id,
+    attemptId: outputAttempt.id,
+    ownerId: userOne,
+    storageBucket: "project-assets",
+    storagePath: outputPath,
+    filename: `${outputSha256}.mp4`,
+    mimeType: "video/mp4",
+    sizeBytes: 8192,
+    contentSha256: outputSha256,
+    downloadLatencyMs: 4200,
+    probe: {
+      kind: "video",
+      durationSeconds: 8,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      codec: "h264",
+      pixelFormat: "yuv420p",
+      hasAlpha: false,
+      formatName: "mov,mp4",
+      audioCodec: null,
+      videoCodec: "h264"
+    }
+  });
+  assert.equal(registeredOutputAgain.assetId, providerOutputAsset);
+  const persistedOutputJob = await repository.getJob(outputJob.job.id);
+  assert.equal(persistedOutputJob?.outputAssetId, providerOutputAsset);
+  assert.equal(persistedOutputJob?.providerLatencyMs, 60000);
+  assert.equal(persistedOutputJob?.downloadLatencyMs, 4200);
+
+  const claimedDownload = await repository.claimNextJob("output-download-worker", 60);
+  assert.equal(claimedDownload?.id, outputJob.job.id);
+  assert.equal(claimedDownload?.status, "downloading");
+  await repository.releaseLease(outputJob.job.id, "output-download-worker");
+  await repository.updateJob(outputJob.job.id, ["downloading"], { status: "validating", progress: 85 });
+  const claimedValidation = await repository.claimNextJob("output-validation-worker", 60);
+  assert.equal(claimedValidation?.id, outputJob.job.id);
+  assert.equal(claimedValidation?.status, "validating");
+  await repository.releaseLease(outputJob.job.id, "output-validation-worker");
+  await repository.updateJob(outputJob.job.id, ["validating"], { status: "awaiting_review", progress: 100 });
 
   const pipelineFirst = await repository.reserveJob({
     ...input,
@@ -477,7 +581,7 @@ try {
     const visibleAssets = (await transaction.unsafe(
       "select id from project_assets order by id"
     )) as unknown as Array<{ id: string }>;
-    assert.deepEqual(visibleAssets.map((row) => row.id), [sourceAsset]);
+    assert.deepEqual(visibleAssets.map((row) => row.id), [sourceAsset, providerOutputAsset]);
 
     const visibleTimeline = (await transaction.unsafe(
       "select distinct job_id from job_timeline_events order by job_id"
@@ -487,7 +591,7 @@ try {
   });
 
   console.log(
-    "Database migrations, private immutable asset registration, BPM provenance, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
+    "Database migrations, private immutable source/provider outputs, BPM provenance, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
   );
 } finally {
   await sql.end();

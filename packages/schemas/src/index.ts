@@ -396,6 +396,9 @@ export const generationJobSchema = z.object({
   attemptCount: z.number().int().nonnegative(),
   maxAttempts: z.number().int().positive(),
   costUsd: z.number().nonnegative(),
+  outputAssetId: z.string().min(1).optional(),
+  providerLatencyMs: z.number().int().nonnegative().optional(),
+  downloadLatencyMs: z.number().int().nonnegative().optional(),
   errorCategory: jobErrorCategorySchema.optional(),
   errorMessage: z.string().optional(),
   leasedBy: z.string().optional(),
@@ -416,6 +419,13 @@ export const jobAttemptSchema = z.object({
   providerJobId: z.string().min(1).optional(),
   status: providerJobStatusSchema,
   costUsd: z.number().nonnegative(),
+  result: z
+    .object({
+      previewUrl: z.string().min(1),
+      thumbnailUrl: z.string().min(1).optional()
+    })
+    .optional(),
+  latencyMs: z.number().int().nonnegative().optional(),
   rawResponse: z.unknown().optional(),
   errorCategory: jobErrorCategorySchema.optional(),
   errorMessage: z.string().optional(),
@@ -443,17 +453,17 @@ export const providerSubmissionSchema = z.object({
   rawResponse: z.unknown().optional()
 });
 
+export const providerResultSchema = z.object({
+  previewUrl: z.string().min(1),
+  thumbnailUrl: z.string().min(1).optional()
+});
+
 export const providerJobSnapshotSchema = z.object({
   providerJobId: z.string().min(1),
   status: providerJobStatusSchema,
   progress: z.number().int().min(0).max(100),
   costUsd: z.number().nonnegative().optional(),
-  result: z
-    .object({
-      previewUrl: z.string().min(1),
-      thumbnailUrl: z.string().min(1).optional()
-    })
-    .optional(),
+  result: providerResultSchema.optional(),
   errorCategory: jobErrorCategorySchema.optional(),
   errorMessage: z.string().optional(),
   rawResponse: z.unknown().optional(),
@@ -513,4 +523,5 @@ export type JobTimelineEventType = z.infer<typeof jobTimelineEventTypeSchema>;
 export type JobTimelineActorType = z.infer<typeof jobTimelineActorTypeSchema>;
 export type JobTimelineEvent = z.infer<typeof jobTimelineEventSchema>;
 export type ProviderSubmission = z.infer<typeof providerSubmissionSchema>;
+export type ProviderResult = z.infer<typeof providerResultSchema>;
 export type ProviderJobSnapshot = z.infer<typeof providerJobSnapshotSchema>;

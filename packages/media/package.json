@@ -1,5 +1,5 @@
 {
-  "name": "@droploop/pipeline",
+  "name": "@droploop/media",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,13 +11,8 @@
     "lint": "tsc --noEmit",
     "test": "tsc --noEmit"
   },
-  "dependencies": {
-    "@droploop/media": "workspace:*",
-    "@droploop/prompts": "workspace:*",
-    "@droploop/schemas": "workspace:*",
-    "zod": "^3.24.1"
-  },
   "devDependencies": {
+    "@types/node": "^20.17.10",
     "typescript": "^5.7.2"
   }
 }

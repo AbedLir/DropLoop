@@ -31,6 +31,8 @@ const clipRowSchema = z.object({
   planned_clip_id: z.string(),
   role: z.string(),
   status: z.string(),
+  preview_url: z.string().nullable(),
+  thumbnail_url: z.string().nullable(),
   loop_score: z.number().nullable(),
   quality_score: z.number().nullable(),
   duration_seconds: z.number().int().positive().nullable(),
@@ -274,7 +276,7 @@ export class SupabaseProjectStore {
       this.client
         .from("clips")
         .select(
-          "id, planned_clip_id, role, status, loop_score, quality_score, duration_seconds, review_recommended_action, review_reason"
+          "id, planned_clip_id, role, status, preview_url, thumbnail_url, loop_score, quality_score, duration_seconds, review_recommended_action, review_reason"
         )
         .eq("project_id", projectId)
         .order("created_at", { ascending: true }),
@@ -325,7 +327,7 @@ export class SupabaseProjectStore {
       this.client
         .from("clips")
         .select(
-          "id, planned_clip_id, role, status, loop_score, quality_score, duration_seconds, review_recommended_action, review_reason"
+          "id, planned_clip_id, role, status, preview_url, thumbnail_url, loop_score, quality_score, duration_seconds, review_recommended_action, review_reason"
         )
         .eq("project_id", projectId)
         .order("created_at", { ascending: true }),

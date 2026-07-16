@@ -2,6 +2,8 @@ import { createDatabaseClient, PostgresDurableJobRepository } from "@droploop/da
 import { DurableJobController } from "@droploop/pipeline";
 import { clipPromptSchema, generatedClipSchema } from "@droploop/schemas";
 import { createVideoProvider, selectVideoProviderName } from "./providers/provider-factory";
+import { OutputProcessingError, ProviderOutputProcessor } from "./output/provider-output-processor";
+import { SupabaseOutputObjectStore } from "./output/supabase-output-store";
 
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const leaseSeconds = Number(process.env.JOB_LEASE_SECONDS ?? 60);
@@ -35,8 +37,26 @@ try {
         await controller.recoverInterruptedSubmission(job.id);
       } else if (job.status === "provider_running") {
         await controller.refresh(job.id);
+      } else if (job.status === "downloading") {
+        try {
+          if (job.outputAssetId) {
+            await controller.completeDownload(job.id, job.outputAssetId, job.downloadLatencyMs);
+          } else {
+            const processor = new ProviderOutputProcessor(repository, new SupabaseOutputObjectStore());
+            const output = await processor.process(job);
+            await controller.completeDownload(job.id, output.assetId, output.downloadLatencyMs);
+          }
+        } catch (error) {
+          const failure =
+            error instanceof OutputProcessingError
+              ? error
+              : new OutputProcessingError(error instanceof Error ? error.message : "Unknown output failure.", true);
+          await controller.recordDownloadFailure(job.id, failure.message, failure.retryable);
+        }
+      } else if (job.status === "validating") {
+        await controller.completeValidation(job.id);
       } else {
-        console.log(`Claimed job ${job.id} in ${job.status}; its next media step belongs to P0-C/P0-D.`);
+        console.log(`Claimed job ${job.id} in ${job.status}; no worker action is registered.`);
       }
     } finally {
       await repository.releaseLease(job.id, workerId);

@@ -23,6 +23,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@droploop/media':
+        specifier: workspace:*
+        version: link:../../packages/media
       '@droploop/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
@@ -69,6 +72,9 @@ importers:
       '@droploop/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@droploop/media':
+        specifier: workspace:*
+        version: link:../../packages/media
       '@droploop/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
@@ -78,6 +84,9 @@ importers:
       '@droploop/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      '@supabase/supabase-js':
+        specifier: ^2.109.0
+        version: 2.109.0
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
@@ -105,8 +114,20 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/media:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.17.10
+        version: 20.19.41
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/pipeline:
     dependencies:
+      '@droploop/media':
+        specifier: workspace:*
+        version: link:../media
       '@droploop/prompts':
         specifier: workspace:*
         version: link:../prompts

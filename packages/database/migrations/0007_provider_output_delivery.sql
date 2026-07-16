@@ -155,7 +155,9 @@ begin
     raise exception 'project owner does not match generation job' using errcode = '42501';
   end if;
 
-  select * into target_attempt from job_attempts where id = p_attempt_id and job_id = p_job_id;
+  select attempt.* into target_attempt
+  from job_attempts as attempt
+  where attempt.id = p_attempt_id and attempt.job_id = p_job_id;
   if not found or target_attempt.status <> 'completed'
     or jsonb_typeof(target_attempt.provider_result) <> 'object'
     or nullif(trim(target_attempt.provider_result ->> 'previewUrl'), '') is null then

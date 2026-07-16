@@ -362,14 +362,21 @@ try {
     /row-level security policy/
   );
 
-  await assert.rejects(
-    sql.begin(async (transaction) => {
-      await transaction.unsafe("set local role authenticated");
-      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
-      await transaction.unsafe("update storage.objects set name = name || '.changed' where name = $1", [sourceAssetPath]);
-    }),
-    /row-level security policy/
-  );
+  await sql.begin(async (transaction) => {
+    await transaction.unsafe("set local role authenticated");
+    await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
+    const overwritten = (await transaction.unsafe(
+      "update storage.objects set name = name || '.changed' where name = $1 returning name",
+      [sourceAssetPath]
+    )) as unknown as Array<{ name: string }>;
+    assert.deepEqual(overwritten, []);
+  });
+
+  const immutableStorageObjects = (await sql.unsafe(
+    "select name from storage.objects where name = $1",
+    [sourceAssetPath]
+  )) as unknown as Array<{ name: string }>;
+  assert.deepEqual(immutableStorageObjects, [{ name: sourceAssetPath }]);
 
   const foreignJob = await repository.reserveJob({
     ...input,

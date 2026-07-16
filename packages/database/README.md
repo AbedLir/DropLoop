@@ -50,6 +50,8 @@ Both functions derive the owner from `auth.uid()`. They never accept a caller-su
 
 `register_project_asset` records an uploaded private Storage object only after the Web route has validated its MIME/size, inspected its bytes with `ffprobe`, and calculated SHA-256. The function verifies project ownership, object existence, the exact user/project/asset path, media metadata constraints, and idempotent asset identity. Direct authenticated asset inserts and updates are disabled.
 
+Source audio also carries byte-derived BPM analysis, confidence, algorithm version, and beat-grid assumptions. `set_project_bpm_selection` keeps the selected BPM separate from its `analysis` or `manual_override` provenance and rejects analysis values that do not match the exact owner asset.
+
 ## Integration verification
 
 CI starts PostgreSQL 16 and runs:

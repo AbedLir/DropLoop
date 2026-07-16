@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { z } from "zod";
 import { ApiError, toErrorResponse } from "../../../../../lib/api-errors";
+import { analyzeAudioBpm } from "../../../../../lib/media/bpm";
 import { MediaProbeError, probeMediaFile, type MediaKind } from "../../../../../lib/media/ffprobe";
 import { SupabaseProjectStore } from "../../../../../lib/projects/project-store";
 import { requireAuthenticatedSupabase } from "../../../../../lib/supabase/auth";
@@ -74,7 +75,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     storagePath = `${userId}/${projectId}/sources/${assetId}/${safeFilename}`;
     const bytes = Buffer.from(await file.arrayBuffer());
     const contentSha256 = createHash("sha256").update(bytes).digest("hex");
-    const probe = await probeUpload(bytes, safeFilename, kind);
+    const analysis = await probeUpload(bytes, safeFilename, kind);
 
     const { error: uploadError } = await client.storage.from("project-assets").upload(storagePath, bytes, {
       cacheControl: "31536000",
@@ -95,7 +96,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
       mimeType: file.type,
       sizeBytes: file.size,
       contentSha256,
-      probe
+      probe: analysis.probe,
+      bpmAnalysis: analysis.bpmAnalysis
     });
     storagePath = null;
     return Response.json({ asset }, { status: 201 });
@@ -115,7 +117,11 @@ async function probeUpload(bytes: Buffer, filename: string, kind: MediaKind) {
   const temporaryFile = join(temporaryDirectory, filename);
   try {
     await writeFile(temporaryFile, bytes, { flag: "wx" });
-    return await probeMediaFile(temporaryFile, kind);
+    const [probe, bpmAnalysis] = await Promise.all([
+      probeMediaFile(temporaryFile, kind),
+      kind === "audio" ? analyzeAudioBpm(temporaryFile) : Promise.resolve(null)
+    ]);
+    return { probe, bpmAnalysis };
   } finally {
     await rm(temporaryDirectory, { force: true, recursive: true });
   }

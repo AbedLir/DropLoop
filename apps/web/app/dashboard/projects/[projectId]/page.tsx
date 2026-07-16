@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { SupabaseProjectStore } from "../../../../lib/projects/project-store";
 import { requireAuthenticatedSupabase } from "../../../../lib/supabase/auth";
+import { BpmSelectionControls } from "./bpm-selection-controls";
 
 export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -33,6 +34,14 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
       </div>
 
       <section className="grid">
+        <BpmSelectionControls
+          analysisAssetId={detail.bpmAnalysis.analysisAssetId}
+          analyzedBpm={detail.bpmAnalysis.analyzedBpm}
+          confidence={detail.bpmAnalysis.confidence}
+          projectId={projectId}
+          selectedBpm={detail.bpmAnalysis.selectedBpm}
+          selectedSource={detail.bpmAnalysis.selectedSource}
+        />
         <article className="card">
           <h2>Real source assets</h2>
           <div className="metric">{detail.assets.length}</div>
@@ -61,6 +70,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
                 {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ""}
                 {asset.duration_seconds ? ` · ${asset.duration_seconds.toFixed(2)}s` : ""}
                 {asset.frame_rate ? ` · ${asset.frame_rate.toFixed(2)} fps` : ""}
+                {asset.bpm_analyzed ? ` · ${asset.bpm_analyzed.toFixed(1)} BPM (${Math.round((asset.bpm_confidence ?? 0) * 100)}%)` : ""}
               </p>
             </article>
           ))}

@@ -109,6 +109,10 @@ export type UploadedAsset = {
   codec: string;
   pixel_format: string | null;
   has_alpha: boolean | null;
+  bpm_analyzed: number | null;
+  bpm_confidence: number | null;
+  bpm_analysis_version: string | null;
+  beat_grid_assumption: string | null;
 };
 
 export type AgentMessage = {

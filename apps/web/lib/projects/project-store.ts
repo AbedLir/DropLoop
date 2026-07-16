@@ -3,6 +3,7 @@ import { projectSchema, reviewActionSchema, type Project, type ReviewAction } fr
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { ApiError } from "../api-errors";
+import type { BpmAnalysis } from "../media/bpm";
 import type { MediaKind, MediaProbe } from "../media/ffprobe";
 
 const projectRowSchema = z.object({
@@ -16,6 +17,11 @@ const projectRowSchema = z.object({
   screen_format: projectSchema.shape.screenFormat,
   pack_size: projectSchema.shape.packSize,
   pipeline_snapshot: z.unknown(),
+  bpm_analyzed: z.coerce.number().positive().nullable(),
+  bpm_confidence: z.coerce.number().min(0).max(1).nullable(),
+  bpm_source: z.enum(["analysis", "manual_override"]),
+  bpm_analyzed_asset_id: z.string().uuid().nullable(),
+  beat_grid_assumption: z.unknown(),
   created_at: z.string(),
   updated_at: z.string()
 });
@@ -80,6 +86,10 @@ const projectAssetRowSchema = z.object({
   pixel_format: z.string().nullable(),
   has_alpha: z.boolean().nullable(),
   metadata: z.unknown(),
+  bpm_analyzed: z.coerce.number().positive().nullable(),
+  bpm_confidence: z.coerce.number().min(0).max(1).nullable(),
+  bpm_analysis_version: z.string().nullable(),
+  beat_grid_assumption: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string()
 });
@@ -93,6 +103,14 @@ export type PersistedProjectDetail = {
   assets: PersistedProjectAsset[];
   clips: PersistedClip[];
   jobs: PersistedJob[];
+  bpmAnalysis: {
+    selectedBpm: number | null;
+    selectedSource: "analysis" | "manual_override";
+    analyzedBpm: number | null;
+    confidence: number | null;
+    analysisAssetId: string | null;
+    beatGridAssumption: unknown;
+  };
 };
 
 export type PersistedReview = {
@@ -124,7 +142,7 @@ export class SupabaseProjectStore {
     const { data, error } = await this.client
       .from("project_assets")
       .select(
-        "id, project_id, type, role, filename, mime_type, size_bytes, storage_bucket, storage_path, status, version, content_sha256, duration_seconds, width, height, frame_rate, codec, pixel_format, has_alpha, metadata, created_at, updated_at"
+        "id, project_id, type, role, filename, mime_type, size_bytes, storage_bucket, storage_path, status, version, content_sha256, duration_seconds, width, height, frame_rate, codec, pixel_format, has_alpha, metadata, bpm_analyzed, bpm_confidence, bpm_analysis_version, beat_grid_assumption, created_at, updated_at"
       )
       .eq("project_id", projectId)
       .order("created_at", { ascending: true });
@@ -143,6 +161,7 @@ export class SupabaseProjectStore {
     sizeBytes: number;
     contentSha256: string;
     probe: MediaProbe;
+    bpmAnalysis: BpmAnalysis | null;
   }): Promise<PersistedProjectAsset> {
     const { data, error } = await this.client
       .rpc("register_project_asset", {
@@ -162,12 +181,30 @@ export class SupabaseProjectStore {
         p_codec: input.probe.codec,
         p_pixel_format: input.probe.pixelFormat,
         p_has_alpha: input.probe.hasAlpha,
-        p_metadata: input.probe
+        p_metadata: { probe: input.probe, bpmAnalysis: input.bpmAnalysis }
       })
       .single();
 
     assertSupabaseSuccess(error, "Unable to register the uploaded asset.");
     return projectAssetRowSchema.parse(data);
+  }
+
+  async setBpmSelection(input: {
+    projectId: string;
+    selectedBpm: number;
+    source: "analysis" | "manual_override";
+    analysisAssetId?: string;
+  }): Promise<Project> {
+    const { data, error } = await this.client
+      .rpc("set_project_bpm_selection", {
+        p_project_id: input.projectId,
+        p_selected_bpm: input.selectedBpm,
+        p_source: input.source,
+        p_analysis_asset_id: input.analysisAssetId ?? null
+      })
+      .single();
+    assertSupabaseSuccess(error, "Unable to update the project BPM selection.");
+    return mapProject(projectRowSchema.parse(data));
   }
 
   async createProject(
@@ -230,7 +267,7 @@ export class SupabaseProjectStore {
       this.client
         .from("project_assets")
         .select(
-          "id, project_id, type, role, filename, mime_type, size_bytes, storage_bucket, storage_path, status, version, content_sha256, duration_seconds, width, height, frame_rate, codec, pixel_format, has_alpha, metadata, created_at, updated_at"
+          "id, project_id, type, role, filename, mime_type, size_bytes, storage_bucket, storage_path, status, version, content_sha256, duration_seconds, width, height, frame_rate, codec, pixel_format, has_alpha, metadata, bpm_analyzed, bpm_confidence, bpm_analysis_version, beat_grid_assumption, created_at, updated_at"
         )
         .eq("project_id", projectId)
         .order("created_at", { ascending: true }),
@@ -264,7 +301,15 @@ export class SupabaseProjectStore {
       pipeline,
       assets: z.array(projectAssetRowSchema).parse(assetsResult.data ?? []),
       clips: z.array(clipRowSchema).parse(clipsResult.data ?? []),
-      jobs: z.array(jobRowSchema).parse(jobsResult.data ?? [])
+      jobs: z.array(jobRowSchema).parse(jobsResult.data ?? []),
+      bpmAnalysis: {
+        selectedBpm: row.bpm,
+        selectedSource: row.bpm_source,
+        analyzedBpm: row.bpm_analyzed,
+        confidence: row.bpm_confidence,
+        analysisAssetId: row.bpm_analyzed_asset_id,
+        beatGridAssumption: row.beat_grid_assumption
+      }
     };
   }
 

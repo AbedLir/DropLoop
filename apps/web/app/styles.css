@@ -206,6 +206,17 @@ textarea {
   font-size: 13px;
 }
 
+.bpmActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.bpmActions input {
+  width: 110px;
+}
+
 .composerGrid {
   display: grid;
   grid-template-columns: 1fr 110px;

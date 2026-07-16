@@ -26,4 +26,4 @@ The first vertical slice needs one narrow ingestion path that is testable before
 - Private source ownership is enforced in both Storage and Postgres.
 - Duplicate project content is rejected by a project-scoped SHA-256 uniqueness constraint.
 - The route currently buffers at most 64 MiB and depends on an available `ffprobe` executable. Larger resumable uploads and a dedicated probing worker are deferred until the first provider path proves the workload.
-- BPM analysis, selected-BPM provenance, production provider submission, result download, and playable preview derivatives remain later P0-C slices.
+- Production provider submission, result download, and playable preview derivatives remain later P0-C slices. BPM analysis and selection provenance are defined by ADR-0007.

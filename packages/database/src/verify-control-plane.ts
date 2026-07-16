@@ -211,7 +211,16 @@ try {
     ]);
     const registeredAssets = (await transaction.unsafe(
       `
-        select id, role, codec, duration_seconds, content_sha256
+        select
+          id,
+          role,
+          codec,
+          duration_seconds,
+          content_sha256,
+          bpm_analyzed::double precision as bpm_analyzed,
+          bpm_confidence::double precision as bpm_confidence,
+          bpm_analysis_version,
+          beat_grid_assumption
         from register_project_asset(
           $1::uuid,
           $2::uuid,
@@ -237,7 +246,17 @@ try {
         projectThree,
         sourceAssetPath,
         "a".repeat(64),
-        transaction.json({ kind: "audio", durationSeconds: 61.25, codec: "mp3" } as never)
+        transaction.json({
+          probe: { kind: "audio", durationSeconds: 61.25, codec: "mp3" },
+          bpmAnalysis: {
+            analyzedBpm: 128.4,
+            confidence: 0.82,
+            windowSeconds: 61.25,
+            sampleRate: 11025,
+            algorithmVersion: "onset-autocorrelation-v1",
+            beatGridAssumption: "constant-tempo-double-time-tie-break"
+          }
+        } as never)
       ]
     )) as unknown as Array<{
       id: string;
@@ -245,14 +264,66 @@ try {
       codec: string;
       duration_seconds: number;
       content_sha256: string;
+      bpm_analyzed: number;
+      bpm_confidence: number;
+      bpm_analysis_version: string;
+      beat_grid_assumption: string;
     }>;
     assert.deepEqual(registeredAssets[0], {
       id: sourceAsset,
       role: "source_audio",
       codec: "mp3",
       duration_seconds: 61.25,
-      content_sha256: "a".repeat(64)
+      content_sha256: "a".repeat(64),
+      bpm_analyzed: 128.4,
+      bpm_confidence: 0.82,
+      bpm_analysis_version: "onset-autocorrelation-v1",
+      beat_grid_assumption: "constant-tempo-double-time-tie-break"
     });
+
+    const syncedBpm = (await transaction.unsafe(
+      `
+        select
+          bpm,
+          bpm_source,
+          bpm_analyzed::double precision as bpm_analyzed,
+          bpm_confidence::double precision as bpm_confidence,
+          bpm_analyzed_asset_id
+        from projects where id = $1
+      `,
+      [projectThree]
+    )) as unknown as Array<{
+      bpm: number;
+      bpm_source: string;
+      bpm_analyzed: number;
+      bpm_confidence: number;
+      bpm_analyzed_asset_id: string;
+    }>;
+    assert.deepEqual(syncedBpm[0], {
+      bpm: 132,
+      bpm_source: "manual_override",
+      bpm_analyzed: 128.4,
+      bpm_confidence: 0.82,
+      bpm_analyzed_asset_id: sourceAsset
+    });
+
+    const analysisSelection = (await transaction.unsafe(
+      `
+        select bpm, bpm_source
+        from set_project_bpm_selection($1, 128, 'analysis', $2)
+      `,
+      [projectThree, sourceAsset]
+    )) as unknown as Array<{ bpm: number; bpm_source: string }>;
+    assert.deepEqual(analysisSelection[0], { bpm: 128, bpm_source: "analysis" });
+
+    const manualSelection = (await transaction.unsafe(
+      `
+        select bpm, bpm_source
+        from set_project_bpm_selection($1, 132, 'manual_override', $2)
+      `,
+      [projectThree, sourceAsset]
+    )) as unknown as Array<{ bpm: number; bpm_source: string }>;
+    assert.deepEqual(manualSelection[0], { bpm: 132, bpm_source: "manual_override" });
 
     const duplicateAssets = (await transaction.unsafe(
       `
@@ -349,6 +420,18 @@ try {
   await assert.rejects(
     sql.begin(async (transaction) => {
       await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userTwo]);
+      await transaction.unsafe("select * from set_project_bpm_selection($1, 128, 'analysis', $2)", [
+        projectThree,
+        sourceAsset
+      ]);
+    }),
+    /project not found for authenticated owner/
+  );
+
+  await assert.rejects(
+    sql.begin(async (transaction) => {
+      await transaction.unsafe("set local role authenticated");
       await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
       await transaction.unsafe(
         `
@@ -404,7 +487,7 @@ try {
   });
 
   console.log(
-    "Database migrations, private immutable asset registration, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
+    "Database migrations, private immutable asset registration, BPM provenance, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
   );
 } finally {
   await sql.end();

@@ -225,10 +225,10 @@ begin
       download_latency_ms = p_download_latency_ms
   where id = p_job_id;
   if existing_asset.planned_clip_id is not null then
-    update clips
+    update clips as clip
     set preview_url = '/api/projects/' || target_job.project_id::text || '/assets/' || existing_asset.id::text || '/content',
         status = 'generated'
-    where project_id = target_job.project_id and planned_clip_id = existing_asset.planned_clip_id;
+    where clip.project_id = target_job.project_id and clip.planned_clip_id = existing_asset.planned_clip_id;
   end if;
 
   return query select

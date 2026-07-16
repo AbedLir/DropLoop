@@ -34,6 +34,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
 
       <section className="grid">
         <article className="card">
+          <h2>Real source assets</h2>
+          <div className="metric">{detail.assets.length}</div>
+          <p className="muted">Private bytes inspected with ffprobe and registered as immutable asset versions.</p>
+        </article>
+        <article className="card">
           <h2>Persisted clips</h2>
           <div className="metric">{detail.clips.length}</div>
           <p className="muted">Relational clip records survive refreshes and worker restarts.</p>
@@ -44,6 +49,23 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
           <p className="muted">Repair and regenerate review actions create claimable jobs.</p>
         </article>
       </section>
+
+      {detail.assets.length > 0 ? (
+        <section className="timeline" style={{ marginTop: 18 }}>
+          {detail.assets.map((asset) => (
+            <article className="timelineItem" key={asset.id}>
+              <span className="status">{asset.role.replaceAll("_", " ")}</span>
+              <h3>{asset.filename}</h3>
+              <p className="muted">
+                {asset.codec}
+                {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ""}
+                {asset.duration_seconds ? ` · ${asset.duration_seconds.toFixed(2)}s` : ""}
+                {asset.frame_rate ? ` · ${asset.frame_rate.toFixed(2)} fps` : ""}
+              </p>
+            </article>
+          ))}
+        </section>
+      ) : null}
 
       <section className="timeline" style={{ marginTop: 18 }}>
         {detail.jobs.length === 0 ? (

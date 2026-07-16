@@ -199,6 +199,13 @@ textarea {
   padding: 14px;
 }
 
+.uploadField {
+  display: grid;
+  gap: 6px;
+  color: #cbd3e6;
+  font-size: 13px;
+}
+
 .composerGrid {
   display: grid;
   grid-template-columns: 1fr 110px;

@@ -3,6 +3,7 @@ import { projectSchema, reviewActionSchema, type Project, type ReviewAction } fr
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { ApiError } from "../api-errors";
+import type { MediaKind, MediaProbe } from "../media/ffprobe";
 
 const projectRowSchema = z.object({
   id: z.string().uuid(),
@@ -58,12 +59,38 @@ const reviewResultRowSchema = z.object({
   created_at: z.string()
 });
 
+const projectAssetRowSchema = z.object({
+  id: z.string().uuid(),
+  project_id: z.string().uuid(),
+  type: z.enum(["audio", "image", "video"]),
+  role: z.enum(["source_audio", "mood_reference", "generated_output", "playable_preview"]),
+  filename: z.string(),
+  mime_type: z.string(),
+  size_bytes: z.coerce.number().int().positive(),
+  storage_bucket: z.string(),
+  storage_path: z.string(),
+  status: z.enum(["ready", "rejected"]),
+  version: z.number().int().positive(),
+  content_sha256: z.string().length(64),
+  duration_seconds: z.number().positive().nullable(),
+  width: z.number().int().positive().nullable(),
+  height: z.number().int().positive().nullable(),
+  frame_rate: z.number().positive().nullable(),
+  codec: z.string(),
+  pixel_format: z.string().nullable(),
+  has_alpha: z.boolean().nullable(),
+  metadata: z.unknown(),
+  created_at: z.string(),
+  updated_at: z.string()
+});
+
 export type PersistedClip = z.infer<typeof clipRowSchema>;
 export type PersistedJob = z.infer<typeof jobRowSchema>;
 
 export type PersistedProjectDetail = {
   project: Project;
   pipeline: ProjectPipelineResult | null;
+  assets: PersistedProjectAsset[];
   clips: PersistedClip[];
   jobs: PersistedJob[];
 };
@@ -76,6 +103,7 @@ export type PersistedReview = {
 };
 
 export type AppliedReview = z.infer<typeof reviewResultRowSchema>;
+export type PersistedProjectAsset = z.infer<typeof projectAssetRowSchema>;
 
 export class SupabaseProjectStore {
   constructor(private readonly client: SupabaseClient) {}
@@ -84,6 +112,62 @@ export class SupabaseProjectStore {
     const { data, error } = await this.client.from("projects").select("*").order("updated_at", { ascending: false });
     assertSupabaseSuccess(error, "Unable to list projects.");
     return z.array(projectRowSchema).parse(data ?? []).map(mapProject);
+  }
+
+  async listAssets(projectId: string): Promise<PersistedProjectAsset[] | null> {
+    const projectResult = await this.client.from("projects").select("id").eq("id", projectId).maybeSingle();
+    assertSupabaseSuccess(projectResult.error, "Unable to load the asset project.");
+    if (!projectResult.data) {
+      return null;
+    }
+
+    const { data, error } = await this.client
+      .from("project_assets")
+      .select(
+        "id, project_id, type, role, filename, mime_type, size_bytes, storage_bucket, storage_path, status, version, content_sha256, duration_seconds, width, height, frame_rate, codec, pixel_format, has_alpha, metadata, created_at, updated_at"
+      )
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true });
+    assertSupabaseSuccess(error, "Unable to load project assets.");
+    return z.array(projectAssetRowSchema).parse(data ?? []);
+  }
+
+  async registerAsset(input: {
+    assetId: string;
+    projectId: string;
+    kind: MediaKind;
+    role: "source_audio" | "mood_reference";
+    storagePath: string;
+    filename: string;
+    mimeType: string;
+    sizeBytes: number;
+    contentSha256: string;
+    probe: MediaProbe;
+  }): Promise<PersistedProjectAsset> {
+    const { data, error } = await this.client
+      .rpc("register_project_asset", {
+        p_asset_id: input.assetId,
+        p_project_id: input.projectId,
+        p_type: input.kind,
+        p_role: input.role,
+        p_storage_path: input.storagePath,
+        p_filename: input.filename,
+        p_mime_type: input.mimeType,
+        p_size_bytes: input.sizeBytes,
+        p_content_sha256: input.contentSha256,
+        p_duration_seconds: input.probe.durationSeconds,
+        p_width: input.probe.width,
+        p_height: input.probe.height,
+        p_frame_rate: input.probe.frameRate,
+        p_codec: input.probe.codec,
+        p_pixel_format: input.probe.pixelFormat,
+        p_has_alpha: input.probe.hasAlpha,
+        p_metadata: input.probe
+      })
+      .single();
+
+    assertSupabaseSuccess(error, "Unable to register the uploaded asset.");
+    return projectAssetRowSchema.parse(data);
   }
 
   async createProject(
@@ -141,8 +225,15 @@ export class SupabaseProjectStore {
   }
 
   async getProject(projectId: string): Promise<PersistedProjectDetail | null> {
-    const [projectResult, clipsResult, jobsResult] = await Promise.all([
+    const [projectResult, assetsResult, clipsResult, jobsResult] = await Promise.all([
       this.client.from("projects").select("*").eq("id", projectId).maybeSingle(),
+      this.client
+        .from("project_assets")
+        .select(
+          "id, project_id, type, role, filename, mime_type, size_bytes, storage_bucket, storage_path, status, version, content_sha256, duration_seconds, width, height, frame_rate, codec, pixel_format, has_alpha, metadata, created_at, updated_at"
+        )
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: true }),
       this.client
         .from("clips")
         .select(
@@ -158,6 +249,7 @@ export class SupabaseProjectStore {
     ]);
 
     assertSupabaseSuccess(projectResult.error, "Unable to load the project.");
+    assertSupabaseSuccess(assetsResult.error, "Unable to load project assets.");
     assertSupabaseSuccess(clipsResult.error, "Unable to load project clips.");
     assertSupabaseSuccess(jobsResult.error, "Unable to load project jobs.");
 
@@ -170,6 +262,7 @@ export class SupabaseProjectStore {
     return {
       project: mapProject(row),
       pipeline,
+      assets: z.array(projectAssetRowSchema).parse(assetsResult.data ?? []),
       clips: z.array(clipRowSchema).parse(clipsResult.data ?? []),
       jobs: z.array(jobRowSchema).parse(jobsResult.data ?? [])
     };

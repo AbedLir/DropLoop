@@ -14,6 +14,8 @@ const projectOne = "10000000-0000-4000-8000-000000000001";
 const projectTwo = "10000000-0000-4000-8000-000000000002";
 const projectThree = "10000000-0000-4000-8000-000000000003";
 const pipelineWorkflow = "20000000-0000-4000-8000-000000000001";
+const sourceAsset = "30000000-0000-4000-8000-000000000001";
+const sourceAssetPath = `${userOne}/${projectThree}/sources/${sourceAsset}/source.mp3`;
 
 try {
   const bootstrap = await readFile(join(packageRoot, "test", "bootstrap-supabase.sql"), "utf8");
@@ -26,6 +28,7 @@ try {
     grant select, insert on generation_jobs to authenticated;
     grant select on clips, review_actions, exports to authenticated;
     grant select on job_attempts, job_dependencies, job_timeline_events to authenticated;
+    grant select, insert, update, delete on storage.objects to authenticated;
 
     delete from job_timeline_events;
     delete from job_dependencies;
@@ -203,6 +206,66 @@ try {
     )) as unknown as Array<{ id: string }>;
     assert.equal(duplicateProjects[0]?.id, projectThree);
 
+    await transaction.unsafe("insert into storage.objects (bucket_id, name) values ('project-assets', $1)", [
+      sourceAssetPath
+    ]);
+    const registeredAssets = (await transaction.unsafe(
+      `
+        select id, role, codec, duration_seconds, content_sha256
+        from register_project_asset(
+          $1::uuid,
+          $2::uuid,
+          'audio',
+          'source_audio',
+          $3,
+          'source.mp3',
+          'audio/mpeg',
+          4096,
+          $4,
+          61.25,
+          null,
+          null,
+          null,
+          'mp3',
+          null,
+          null,
+          $5::jsonb
+        )
+      `,
+      [
+        sourceAsset,
+        projectThree,
+        sourceAssetPath,
+        "a".repeat(64),
+        transaction.json({ kind: "audio", durationSeconds: 61.25, codec: "mp3" } as never)
+      ]
+    )) as unknown as Array<{
+      id: string;
+      role: string;
+      codec: string;
+      duration_seconds: number;
+      content_sha256: string;
+    }>;
+    assert.deepEqual(registeredAssets[0], {
+      id: sourceAsset,
+      role: "source_audio",
+      codec: "mp3",
+      duration_seconds: 61.25,
+      content_sha256: "a".repeat(64)
+    });
+
+    const duplicateAssets = (await transaction.unsafe(
+      `
+        select id
+        from register_project_asset(
+          $1::uuid, $2::uuid, 'audio', 'source_audio', $3, 'source.mp3', 'audio/mpeg', 4096, $4,
+          61.25, null, null, null, 'mp3', null, null, '{}'::jsonb
+        )
+      `,
+      [sourceAsset, projectThree, sourceAssetPath, "a".repeat(64)]
+    )) as unknown as Array<{ id: string }>;
+    assert.equal(duplicateAssets[0]?.id, sourceAsset);
+
     const clips = (await transaction.unsafe(
       "select id, status from clips where project_id = $1 and planned_clip_id = 'drop-1'",
       [projectThree]
@@ -266,6 +329,48 @@ try {
     /clip not found for authenticated project owner/
   );
 
+  await assert.rejects(
+    sql.begin(async (transaction) => {
+      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userTwo]);
+      await transaction.unsafe(
+        `
+          select * from register_project_asset(
+            $1::uuid, $2::uuid, 'audio', 'source_audio', $3, 'foreign.mp3', 'audio/mpeg', 4096, $4,
+            61.25, null, null, null, 'mp3', null, null, '{}'::jsonb
+          )
+        `,
+        ["30000000-0000-4000-8000-000000000002", projectThree, sourceAssetPath, "b".repeat(64)]
+      );
+    }),
+    /project not found for authenticated owner/
+  );
+
+  await assert.rejects(
+    sql.begin(async (transaction) => {
+      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
+      await transaction.unsafe(
+        `
+          insert into project_assets (
+            project_id, type, role, url, filename, mime_type, size_bytes, codec, duration_seconds
+          ) values ($1, 'audio', 'source_audio', 'forged', 'forged.mp3', 'audio/mpeg', 1, 'mp3', 1)
+        `,
+        [projectThree]
+      );
+    }),
+    /row-level security policy/
+  );
+
+  await assert.rejects(
+    sql.begin(async (transaction) => {
+      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
+      await transaction.unsafe("update storage.objects set name = name || '.changed' where name = $1", [sourceAssetPath]);
+    }),
+    /row-level security policy/
+  );
+
   const foreignJob = await repository.reserveJob({
     ...input,
     projectId: projectTwo,
@@ -278,6 +383,11 @@ try {
     const visible = (await transaction.unsafe("select id from projects order by id")) as unknown as Array<{ id: string }>;
     assert.deepEqual(visible.map((row) => row.id), [projectOne, projectThree]);
 
+    const visibleAssets = (await transaction.unsafe(
+      "select id from project_assets order by id"
+    )) as unknown as Array<{ id: string }>;
+    assert.deepEqual(visibleAssets.map((row) => row.id), [sourceAsset]);
+
     const visibleTimeline = (await transaction.unsafe(
       "select distinct job_id from job_timeline_events order by job_id"
     )) as unknown as Array<{ job_id: string }>;
@@ -286,7 +396,7 @@ try {
   });
 
   console.log(
-    "Database migrations, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
+    "Database migrations, private immutable asset registration, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
   );
 } finally {
   await sql.end();

@@ -19,6 +19,7 @@ The runner records each ordered SQL file in `schema_migrations` and applies a mi
 - Workers use the service role only on the server.
 - The service-role key and `DATABASE_URL` must never use a `NEXT_PUBLIC_` prefix or enter client bundles/logs.
 - Project asset object paths must start with the authenticated user ID.
+- Source assets use immutable `user/project/sources/asset/file` paths. Authenticated callers cannot directly insert/update asset rows or overwrite Storage objects.
 
 ## Durable jobs
 
@@ -45,6 +46,10 @@ User-facing writes that span multiple tables run through narrow, authenticated d
 
 Both functions derive the owner from `auth.uid()`. They never accept a caller-supplied user ID, and direct inserts into `review_actions` are disabled for the authenticated role.
 
+## Real media ingestion
+
+`register_project_asset` records an uploaded private Storage object only after the Web route has validated its MIME/size, inspected its bytes with `ffprobe`, and calculated SHA-256. The function verifies project ownership, object existence, the exact user/project/asset path, media metadata constraints, and idempotent asset identity. Direct authenticated asset inserts and updates are disabled.
+
 ## Integration verification
 
 CI starts PostgreSQL 16 and runs:
@@ -54,4 +59,4 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/droploop \
   pnpm --filter @droploop/database test:integration
 ```
 
-This executes the real migrations and verifies authenticated project/review persistence, idempotent reservation, dependency-aware leasing, timeline emission, lease release, and owner-only project visibility under RLS.
+This executes the real migrations and verifies immutable private asset registration, Storage/Postgres ownership, authenticated project/review persistence, idempotent reservation, dependency-aware leasing, timeline emission, lease release, and owner-only visibility under RLS.

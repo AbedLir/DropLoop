@@ -44,6 +44,12 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 
 The publishable key is safe to expose to the browser because authorization is enforced by Auth and RLS. Never expose `SUPABASE_SERVICE_ROLE_KEY` or `DATABASE_URL` through a `NEXT_PUBLIC_` variable.
 
+Real source uploads are private, limited to 64 MiB per file, and inspected from bytes before registration. The Web runtime must have `ffprobe` on `PATH`, or configure its absolute executable path:
+
+```powershell
+FFPROBE_PATH=ffprobe
+```
+
 ## Repository Layout
 
 ```text

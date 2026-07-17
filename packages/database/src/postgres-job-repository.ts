@@ -439,25 +439,16 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
 
   async registerLoopAnalysis(input: RegisterLoopAnalysisInput): Promise<StoredLoopAnalysis> {
     const rows = (await this.sql.unsafe(
-      `
-        with registered as (
-          select * from register_asset_loop_analysis($1::uuid, $2::uuid, $3::uuid, $4::jsonb)
-        )
-        select
-          registered.analysis_id,
-          registered.job_id,
-          registered.asset_id,
-          analysis.source_analysis_id,
-          registered.evidence,
-          registered.created_at
-        from registered
-        join asset_loop_analyses as analysis on analysis.id = registered.analysis_id
-      `,
+      "select * from register_asset_loop_analysis($1::uuid, $2::uuid, $3::uuid, $4::jsonb)",
       [input.analysisId, input.jobId, input.assetId, this.sql.json(input.result as never)]
-    )) as unknown as LoopAnalysisRow[];
+    )) as unknown as Array<{ analysis_id: string }>;
     const row = rows[0];
     if (!row) throw new JobConflictError(`Database did not register loop analysis for job ${input.jobId}.`);
-    return mapLoopAnalysis(row);
+    const stored = await this.getLatestLoopAnalysis(input.jobId);
+    if (!stored || stored.analysisId !== row.analysis_id) {
+      throw new JobConflictError(`Database did not expose registered loop analysis ${row.analysis_id}.`);
+    }
+    return stored;
   }
 
   async getLatestLoopAnalysis(jobId: string): Promise<StoredLoopAnalysis | null> {

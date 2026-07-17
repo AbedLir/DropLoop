@@ -17,6 +17,10 @@ const pipelineWorkflow = "20000000-0000-4000-8000-000000000001";
 const sourceAsset = "30000000-0000-4000-8000-000000000001";
 const providerOutputAsset = "30000000-0000-4000-8000-000000000010";
 const providerOutputAnalysis = "40000000-0000-4000-8000-000000000010";
+const repairSourceAsset = "30000000-0000-4000-8000-000000000020";
+const repairOutputAsset = "30000000-0000-4000-8000-000000000021";
+const repairSourceAnalysis = "40000000-0000-4000-8000-000000000020";
+const repairOutputAnalysis = "40000000-0000-4000-8000-000000000021";
 const sourceAssetPath = `${userOne}/${projectThree}/sources/${sourceAsset}/source.mp3`;
 
 try {
@@ -485,6 +489,77 @@ try {
     persistedClipId = clips[0]?.id ?? "";
     assert.ok(persistedClipId);
     assert.equal(clips[0]?.status, "generated");
+  });
+
+  const repairSourceJob = await repository.reserveJob({
+    projectId: projectThree,
+    operation: "generate",
+    idempotencyKey: "project-three:repair-source:v1",
+    input: { prompt: { clipId: "drop-1" } }
+  });
+  await repository.updateJob(repairSourceJob.job.id, ["queued"], {
+    status: "downloading",
+    provider: "mock",
+    providerJobId: "repair-source-provider-job",
+    providerModel: "deterministic-contract-fixture",
+    attemptCount: 1,
+    progress: 70
+  });
+  const repairSourceAttempt = await repository.createAttempt({
+    jobId: repairSourceJob.job.id,
+    attemptNumber: 1,
+    provider: "mock",
+    providerModel: "deterministic-contract-fixture",
+    providerJobId: "repair-source-provider-job",
+    status: "completed",
+    costUsd: 0,
+    result: { previewUrl: "https://provider.example/repair-source.mp4" },
+    startedAt: "2026-07-17T00:00:00.000Z",
+    finishedAt: "2026-07-17T00:00:01.000Z"
+  });
+  const repairSourceSha = "d".repeat(64);
+  const repairSourcePath = `${userOne}/${projectThree}/outputs/${repairSourceJob.job.id}/${repairSourceAttempt.id}/${repairSourceSha}.mp4`;
+  await sql.unsafe("insert into storage.objects (bucket_id, name) values ('project-assets', $1)", [repairSourcePath]);
+  await repository.registerProviderOutput({
+    assetId: repairSourceAsset,
+    jobId: repairSourceJob.job.id,
+    attemptId: repairSourceAttempt.id,
+    ownerId: userOne,
+    storageBucket: "project-assets",
+    storagePath: repairSourcePath,
+    filename: `${repairSourceSha}.mp4`,
+    mimeType: "video/mp4",
+    sizeBytes: 8192,
+    contentSha256: repairSourceSha,
+    downloadLatencyMs: 1000,
+    probe: {
+      kind: "video", durationSeconds: 8, width: 1920, height: 1080, frameRate: 30,
+      codec: "h264", pixelFormat: "yuv420p", hasAlpha: false, formatName: "mov,mp4",
+      audioCodec: null, videoCodec: "h264"
+    }
+  });
+  await repository.updateJob(repairSourceJob.job.id, ["downloading"], { status: "validating", progress: 85 });
+  const repairRequiredResult = {
+    ...loopResult,
+    decision: "repair_required" as const,
+    loopScore: 65,
+    boundaryMaePercent: 35,
+    firstFrameLumaPercent: 30,
+    lastFrameLumaPercent: 55,
+    brightnessJumpPercent: 25,
+    reasons: ["Boundary MAE 35% exceeds 12%.", "Boundary brightness jump 25% exceeds 8%."]
+  };
+  await repository.registerLoopAnalysis({
+    analysisId: repairSourceAnalysis,
+    jobId: repairSourceJob.job.id,
+    assetId: repairSourceAsset,
+    result: repairRequiredResult
+  });
+  await repository.updateJob(repairSourceJob.job.id, ["validating"], { status: "awaiting_review", progress: 100 });
+
+  await sql.begin(async (transaction) => {
+    await transaction.unsafe("set local role authenticated");
+    await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
 
     const firstReview = (await transaction.unsafe(
       "select * from apply_clip_review_action($1, $2, 'repair', 'Visible loop seam', $3)",
@@ -504,6 +579,90 @@ try {
       [projectThree, persistedClipId, "web-review:repair:one"]
     )) as unknown as Array<{ job_id: string }>;
     assert.equal(duplicateReview[0]?.job_id, reviewJobId);
+  });
+
+  const repairJob = await repository.getJob(reviewJobId);
+  assert.equal(repairJob?.sourceAssetId, repairSourceAsset);
+  assert.equal(repairJob?.sourceAnalysisId, repairSourceAnalysis);
+  assert.equal(repairJob?.input.sourceAssetId, repairSourceAsset);
+  assert.equal(repairJob?.input.sourceAnalysisId, repairSourceAnalysis);
+
+  await repository.updateJob(reviewJobId, ["queued"], {
+    status: "downloading",
+    provider: "mock",
+    providerJobId: "repair-output-provider-job",
+    providerModel: "deterministic-contract-fixture",
+    attemptCount: 1,
+    progress: 70
+  });
+  const repairOutputAttempt = await repository.createAttempt({
+    jobId: reviewJobId,
+    attemptNumber: 1,
+    provider: "mock",
+    providerModel: "deterministic-contract-fixture",
+    providerJobId: "repair-output-provider-job",
+    status: "completed",
+    costUsd: 0,
+    result: { previewUrl: "https://provider.example/repair-output.mp4" },
+    startedAt: "2026-07-17T00:01:00.000Z",
+    finishedAt: "2026-07-17T00:01:01.000Z"
+  });
+  const repairOutputSha = "e".repeat(64);
+  const repairOutputPath = `${userOne}/${projectThree}/outputs/${reviewJobId}/${repairOutputAttempt.id}/${repairOutputSha}.mp4`;
+  await sql.unsafe("insert into storage.objects (bucket_id, name) values ('project-assets', $1)", [repairOutputPath]);
+  await repository.registerProviderOutput({
+    assetId: repairOutputAsset,
+    jobId: reviewJobId,
+    attemptId: repairOutputAttempt.id,
+    ownerId: userOne,
+    storageBucket: "project-assets",
+    storagePath: repairOutputPath,
+    filename: `${repairOutputSha}.mp4`,
+    mimeType: "video/mp4",
+    sizeBytes: 8192,
+    contentSha256: repairOutputSha,
+    downloadLatencyMs: 1000,
+    probe: {
+      kind: "video", durationSeconds: 8, width: 1920, height: 1080, frameRate: 30,
+      codec: "h264", pixelFormat: "yuv420p", hasAlpha: false, formatName: "mov,mp4",
+      audioCodec: null, videoCodec: "h264"
+    }
+  });
+  await repository.updateJob(reviewJobId, ["downloading"], { status: "validating", progress: 85 });
+  const storedRepairAnalysis = await repository.registerLoopAnalysis({
+    analysisId: repairOutputAnalysis,
+    jobId: reviewJobId,
+    assetId: repairOutputAsset,
+    result: loopResult
+  });
+  assert.equal(storedRepairAnalysis.sourceAnalysisId, repairSourceAnalysis);
+  await repository.updateJob(reviewJobId, ["validating"], { status: "awaiting_review", progress: 100 });
+
+  const repairLineage = (await sql.unsafe(
+    `
+      select
+        output_asset.parent_asset_id,
+        output_asset.version,
+        output_analysis.source_analysis_id,
+        target_clip.current_asset_id
+      from project_assets as output_asset
+      join asset_loop_analyses as output_analysis on output_analysis.asset_id = output_asset.id
+      join clips as target_clip on target_clip.project_id = output_asset.project_id
+        and target_clip.planned_clip_id = output_asset.planned_clip_id
+      where output_asset.id = $1 and output_analysis.id = $2
+    `,
+    [repairOutputAsset, repairOutputAnalysis]
+  )) as unknown as Array<{
+    parent_asset_id: string;
+    version: number;
+    source_analysis_id: string;
+    current_asset_id: string;
+  }>;
+  assert.deepEqual(repairLineage[0], {
+    parent_asset_id: repairSourceAsset,
+    version: 2,
+    source_analysis_id: repairSourceAnalysis,
+    current_asset_id: repairOutputAsset
   });
 
   const reviewCounts = (await sql.unsafe(
@@ -618,7 +777,12 @@ try {
     const visibleAssets = (await transaction.unsafe(
       "select id from project_assets order by id"
     )) as unknown as Array<{ id: string }>;
-    assert.deepEqual(visibleAssets.map((row) => row.id), [sourceAsset, providerOutputAsset]);
+    assert.deepEqual(visibleAssets.map((row) => row.id), [
+      sourceAsset,
+      providerOutputAsset,
+      repairSourceAsset,
+      repairOutputAsset
+    ]);
 
     const visibleTimeline = (await transaction.unsafe(
       "select distinct job_id from job_timeline_events order by job_id"
@@ -629,11 +793,15 @@ try {
     const visibleAnalyses = (await transaction.unsafe(
       "select id from asset_loop_analyses order by id"
     )) as unknown as Array<{ id: string }>;
-    assert.deepEqual(visibleAnalyses.map((row) => row.id), [providerOutputAnalysis]);
+    assert.deepEqual(visibleAnalyses.map((row) => row.id), [
+      providerOutputAnalysis,
+      repairSourceAnalysis,
+      repairOutputAnalysis
+    ]);
   });
 
   console.log(
-    "Database migrations, private immutable source/provider outputs, decoded loop evidence, BPM provenance, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
+    "Database migrations, private immutable source/provider outputs, decoded before/after repair lineage, BPM provenance, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
   );
 } finally {
   await sql.end();

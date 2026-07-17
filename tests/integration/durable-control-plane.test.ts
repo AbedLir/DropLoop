@@ -78,6 +78,21 @@ describe("durable control plane", () => {
     );
   });
 
+  it("requires repair jobs to bind exact source asset and analysis lineage", () => {
+    expect(() => assertReserveJobTopology({ ...jobInput(), operation: "repair" })).toThrow(
+      "Repair jobs require exact source asset and analysis IDs"
+    );
+    expect(() => assertReserveJobTopology({ ...jobInput(), sourceAssetId: "asset-1" })).toThrow(
+      "provided together"
+    );
+    expect(() => assertReserveJobTopology({
+      ...jobInput(),
+      operation: "repair",
+      sourceAssetId: "asset-1",
+      sourceAnalysisId: "analysis-1"
+    })).not.toThrow();
+  });
+
   it("keeps dependent pipeline work blocked while split work remains claimable", async () => {
     const repository = new MemoryJobRepository();
     const workflowId = "workflow-1";
@@ -308,6 +323,8 @@ class MemoryJobRepository implements DurableJobRepository {
       if (
         existing.operation !== input.operation ||
         existing.orchestrationMode !== (input.orchestrationMode ?? "solo") ||
+        (input.sourceAssetId !== undefined && existing.sourceAssetId !== input.sourceAssetId) ||
+        (input.sourceAnalysisId !== undefined && existing.sourceAnalysisId !== input.sourceAnalysisId) ||
         (input.workflowId !== undefined && existing.workflowId !== input.workflowId) ||
         existingDependencies.length !== requestedDependencies.length ||
         existingDependencies.some((dependencyId, index) => dependencyId !== requestedDependencies[index])
@@ -334,6 +351,8 @@ class MemoryJobRepository implements DurableJobRepository {
       attemptCount: 0,
       maxAttempts: input.maxAttempts ?? 3,
       costUsd: 0,
+      ...(input.sourceAssetId ? { sourceAssetId: input.sourceAssetId } : {}),
+      ...(input.sourceAnalysisId ? { sourceAnalysisId: input.sourceAnalysisId } : {}),
       createdAt: now().toISOString(),
       updatedAt: now().toISOString()
     });

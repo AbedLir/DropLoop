@@ -74,7 +74,7 @@ export class KlingProvider implements VideoProvider {
   async submitRepair(_input: RepairVideoInput): Promise<ProviderSubmission> {
     throw new ProviderError(
       "internal",
-      "Kling repair requires a durable source-video asset URL; that handoff belongs to P0-D."
+      "Kling repair submission remains disabled until its verified endpoint can consume a short-lived URL for the bound source asset."
     );
   }
 

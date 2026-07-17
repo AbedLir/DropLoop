@@ -396,6 +396,8 @@ export const generationJobSchema = z.object({
   attemptCount: z.number().int().nonnegative(),
   maxAttempts: z.number().int().positive(),
   costUsd: z.number().nonnegative(),
+  sourceAssetId: z.string().min(1).optional(),
+  sourceAnalysisId: z.string().min(1).optional(),
   outputAssetId: z.string().min(1).optional(),
   providerLatencyMs: z.number().int().nonnegative().optional(),
   downloadLatencyMs: z.number().int().nonnegative().optional(),

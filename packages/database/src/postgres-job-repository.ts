@@ -32,6 +32,8 @@ type JobRow = {
   attempt_count: number;
   max_attempts: number;
   cost_usd: string | number;
+  source_asset_id: string | null;
+  source_analysis_id: string | null;
   output_asset_id: string | null;
   provider_latency_ms: string | number | null;
   download_latency_ms: string | number | null;
@@ -81,6 +83,7 @@ type LoopAnalysisRow = {
   analysis_id: string;
   job_id: string;
   asset_id: string;
+  source_analysis_id: string | null;
   evidence: RegisterLoopAnalysisInput["result"] | string;
   created_at: Date | string;
 };
@@ -114,9 +117,11 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
             progress,
             input,
             idempotency_key,
+            source_asset_id,
+            source_analysis_id,
             max_attempts
           )
-          values ($1, $2, $3, $4, $5, $6, 'queued', 0, $7::jsonb, $8, $9)
+          values ($1, $2, $3, $4, $5, $6, 'queued', 0, $7::jsonb, $8, $9::uuid, $10::uuid, $11)
           on conflict (project_id, idempotency_key) do nothing
           returning *
         `,
@@ -129,6 +134,8 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
           input.operation,
           transaction.json(input.input as never),
           input.idempotencyKey,
+          input.sourceAssetId ?? null,
+          input.sourceAnalysisId ?? null,
           input.maxAttempts ?? 3
         ]
       )) as unknown as JobRow[];
@@ -164,6 +171,8 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
       if (
         row.operation !== input.operation ||
         row.orchestration_mode !== orchestrationMode ||
+        (input.sourceAssetId !== undefined && row.source_asset_id !== input.sourceAssetId) ||
+        (input.sourceAnalysisId !== undefined && row.source_analysis_id !== input.sourceAnalysisId) ||
         (input.workflowId !== undefined && row.workflow_id !== input.workflowId) ||
         existingDependencyIds.length !== requestedDependencyIds.length ||
         existingDependencyIds.some((dependencyId, index) => dependencyId !== requestedDependencyIds[index])
@@ -430,7 +439,20 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
 
   async registerLoopAnalysis(input: RegisterLoopAnalysisInput): Promise<StoredLoopAnalysis> {
     const rows = (await this.sql.unsafe(
-      "select * from register_asset_loop_analysis($1::uuid, $2::uuid, $3::uuid, $4::jsonb)",
+      `
+        with registered as (
+          select * from register_asset_loop_analysis($1::uuid, $2::uuid, $3::uuid, $4::jsonb)
+        )
+        select
+          registered.analysis_id,
+          registered.job_id,
+          registered.asset_id,
+          analysis.source_analysis_id,
+          registered.evidence,
+          registered.created_at
+        from registered
+        join asset_loop_analyses as analysis on analysis.id = registered.analysis_id
+      `,
       [input.analysisId, input.jobId, input.assetId, this.sql.json(input.result as never)]
     )) as unknown as LoopAnalysisRow[];
     const row = rows[0];
@@ -445,6 +467,7 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
           analysis.id as analysis_id,
           analysis.job_id,
           analysis.asset_id,
+          analysis.source_analysis_id,
           analysis.evidence,
           analysis.created_at
         from asset_loop_analyses as analysis
@@ -492,6 +515,8 @@ function mapJob(row: JobRow): GenerationJob {
     attemptCount: row.attempt_count,
     maxAttempts: row.max_attempts,
     costUsd: Number(row.cost_usd),
+    ...(row.source_asset_id ? { sourceAssetId: row.source_asset_id } : {}),
+    ...(row.source_analysis_id ? { sourceAnalysisId: row.source_analysis_id } : {}),
     ...(row.output_asset_id ? { outputAssetId: row.output_asset_id } : {}),
     ...(row.provider_latency_ms === null ? {} : { providerLatencyMs: Number(row.provider_latency_ms) }),
     ...(row.download_latency_ms === null ? {} : { downloadLatencyMs: Number(row.download_latency_ms) }),
@@ -547,6 +572,7 @@ function mapLoopAnalysis(row: LoopAnalysisRow): StoredLoopAnalysis {
     analysisId: row.analysis_id,
     jobId: row.job_id,
     assetId: row.asset_id,
+    ...(row.source_analysis_id ? { sourceAnalysisId: row.source_analysis_id } : {}),
     result: (typeof row.evidence === "string" ? JSON.parse(row.evidence) : row.evidence) as RegisterLoopAnalysisInput["result"],
     createdAt: toIso(row.created_at)
   };

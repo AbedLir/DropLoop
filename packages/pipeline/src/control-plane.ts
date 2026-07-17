@@ -9,7 +9,6 @@ import type { LoopAnalysisResult, MediaProbe } from "@droploop/media";
 import type {
   ClipPrompt,
   DurableJobStatus,
-  GeneratedClip,
   GenerationJob,
   JobAttempt,
   JobErrorCategory,
@@ -29,7 +28,9 @@ export type GenerateVideoInput = {
 export type RepairVideoInput = {
   projectId: string;
   idempotencyKey: string;
-  clip: GeneratedClip;
+  plannedClipId: string;
+  sourceAssetId: string;
+  sourceAnalysisId: string;
   repairInstruction: string;
 };
 
@@ -50,6 +51,8 @@ export type ReserveJobInput = {
   operation: JobOperation;
   idempotencyKey: string;
   input: Record<string, unknown>;
+  sourceAssetId?: string;
+  sourceAnalysisId?: string;
   maxAttempts?: number;
 };
 
@@ -120,6 +123,7 @@ export type RegisterLoopAnalysisInput = {
 };
 
 export type StoredLoopAnalysis = RegisterLoopAnalysisInput & {
+  sourceAnalysisId?: string;
   createdAt: string;
 };
 
@@ -501,6 +505,16 @@ export function assertReserveJobTopology(input: ReserveJobInput): void {
   const mode = input.orchestrationMode ?? "solo";
   const dependencies = input.dependsOnJobIds ?? [];
   const uniqueDependencies = new Set(dependencies);
+
+  if ((input.sourceAssetId === undefined) !== (input.sourceAnalysisId === undefined)) {
+    throw new JobConflictError("Repair source asset and analysis IDs must be provided together.");
+  }
+  if (input.operation !== "repair" && input.sourceAssetId !== undefined) {
+    throw new JobConflictError("Only repair jobs may bind source asset lineage.");
+  }
+  if (input.operation === "repair" && input.sourceAssetId === undefined) {
+    throw new JobConflictError("Repair jobs require exact source asset and analysis IDs.");
+  }
 
   if (uniqueDependencies.size !== dependencies.length) {
     throw new JobConflictError("A job cannot declare the same dependency more than once.");

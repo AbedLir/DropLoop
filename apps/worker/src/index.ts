@@ -1,6 +1,6 @@
 import { createDatabaseClient, PostgresDurableJobRepository } from "@droploop/database";
 import { DurableJobController } from "@droploop/pipeline";
-import { clipPromptSchema, generatedClipSchema } from "@droploop/schemas";
+import { clipPromptSchema } from "@droploop/schemas";
 import { createVideoProvider, selectVideoProviderName } from "./providers/provider-factory";
 import { OutputProcessingError, ProviderOutputProcessor } from "./output/provider-output-processor";
 import { SupabaseOutputObjectStore } from "./output/supabase-output-store";
@@ -28,12 +28,22 @@ try {
           prompt: clipPromptSchema.parse(job.input.prompt)
         });
       } else if (job.operation === "repair" && (job.status === "queued" || job.status === "repairing")) {
-        await controller.submitRepair(job.id, {
-          projectId: job.projectId,
-          idempotencyKey: job.idempotencyKey,
-          clip: generatedClipSchema.parse(job.input.clip),
-          repairInstruction: String(job.input.repairInstruction ?? "Repair loop continuity.")
-        });
+        if (!job.sourceAssetId || !job.sourceAnalysisId || typeof job.input.plannedClipId !== "string") {
+          await repository.updateJob(job.id, [job.status], {
+            status: "failed",
+            errorCategory: "validation_failed",
+            errorMessage: "Repair job is missing exact immutable source asset and analysis lineage."
+          });
+        } else {
+          await controller.submitRepair(job.id, {
+            projectId: job.projectId,
+            idempotencyKey: job.idempotencyKey,
+            plannedClipId: job.input.plannedClipId,
+            sourceAssetId: job.sourceAssetId,
+            sourceAnalysisId: job.sourceAnalysisId,
+            repairInstruction: String(job.input.repairInstruction ?? "Repair loop continuity.")
+          });
+        }
       } else if (job.status === "submitting") {
         await controller.recoverInterruptedSubmission(job.id);
       } else if (job.status === "provider_running") {

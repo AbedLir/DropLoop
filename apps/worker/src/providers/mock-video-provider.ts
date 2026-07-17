@@ -19,7 +19,7 @@ export class MockVideoProvider implements VideoProvider {
   }
 
   async submitRepair(input: RepairVideoInput): Promise<ProviderSubmission> {
-    return this.submit(input.projectId, input.idempotencyKey, `${input.clip.clipId}-repair`);
+    return this.submit(input.projectId, input.idempotencyKey, `${input.plannedClipId}-repair`);
   }
 
   async getJob(providerJobId: string): Promise<ProviderJobSnapshot> {

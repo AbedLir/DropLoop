@@ -5,12 +5,20 @@ import { createVideoProvider, selectVideoProviderName } from "./providers/provid
 import { OutputProcessingError, ProviderOutputProcessor } from "./output/provider-output-processor";
 import { SupabaseOutputObjectStore } from "./output/supabase-output-store";
 import { LoopAnalysisProcessor, LoopValidationError } from "./output/loop-analysis-processor";
+import {
+  LOCAL_LOOP_REPAIR_MODEL,
+  LOCAL_LOOP_REPAIR_PROVIDER,
+  LocalLoopRepairError,
+  LocalLoopRepairProcessor
+} from "./output/local-loop-repair-processor";
+import { LOOP_REPAIR_POLICY_V1 } from "@droploop/media";
 
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const leaseSeconds = Number(process.env.JOB_LEASE_SECONDS ?? 60);
 const sql = createDatabaseClient();
 const repository = new PostgresDurableJobRepository(sql);
 const defaultProviderName = process.env.VIDEO_PROVIDER ?? "mock";
+const repairEngine = process.env.LOOP_REPAIR_ENGINE ?? "local";
 
 try {
   const job = await repository.claimNextJob(workerId, leaseSeconds);
@@ -28,13 +36,35 @@ try {
           prompt: clipPromptSchema.parse(job.input.prompt)
         });
       } else if (job.operation === "repair" && (job.status === "queued" || job.status === "repairing")) {
+        const selectedRepairEngine = job.status === "repairing" && job.provider === LOCAL_LOOP_REPAIR_PROVIDER
+          ? "local"
+          : repairEngine;
         if (!job.sourceAssetId || !job.sourceAnalysisId || typeof job.input.plannedClipId !== "string") {
           await repository.updateJob(job.id, [job.status], {
             status: "failed",
             errorCategory: "validation_failed",
             errorMessage: "Repair job is missing exact immutable source asset and analysis lineage."
           });
-        } else {
+        } else if (selectedRepairEngine === "local") {
+          const localJob = await controller.beginLocalRepair(job.id, {
+            provider: LOCAL_LOOP_REPAIR_PROVIDER,
+            model: LOCAL_LOOP_REPAIR_MODEL,
+            providerJobId: `local-loop-doctor:${job.id}:${LOCAL_LOOP_REPAIR_MODEL}`,
+            config: { ...LOOP_REPAIR_POLICY_V1 }
+          });
+          try {
+            const output = await new LocalLoopRepairProcessor(
+              repository,
+              new SupabaseOutputObjectStore()
+            ).process(localJob);
+            await controller.completeLocalRepair(job.id, output.assetId, output.materializationLatencyMs);
+          } catch (error) {
+            const failure = error instanceof LocalLoopRepairError
+              ? error
+              : new LocalLoopRepairError(error instanceof Error ? error.message : "Unknown local repair failure.", true);
+            await controller.recordLocalRepairFailure(job.id, failure.message, failure.retryable);
+          }
+        } else if (selectedRepairEngine === "provider") {
           await controller.submitRepair(job.id, {
             projectId: job.projectId,
             idempotencyKey: job.idempotencyKey,
@@ -42,6 +72,12 @@ try {
             sourceAssetId: job.sourceAssetId,
             sourceAnalysisId: job.sourceAnalysisId,
             repairInstruction: String(job.input.repairInstruction ?? "Repair loop continuity.")
+          });
+        } else {
+          await repository.updateJob(job.id, [job.status], {
+            status: "failed",
+            errorCategory: "validation_failed",
+            errorMessage: `Unsupported LOOP_REPAIR_ENGINE: ${selectedRepairEngine}`
           });
         }
       } else if (job.status === "submitting") {

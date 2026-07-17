@@ -1,17 +1,18 @@
-import { createHash } from "node:crypto";
 import { probeMediaBuffer } from "@droploop/media";
 import type { MediaProbe } from "@droploop/media";
 import type { DurableJobRepository } from "@droploop/pipeline";
 import type { GenerationJob, JobAttempt } from "@droploop/schemas";
+import {
+  GeneratedOutputRegistrar,
+  OutputRegistrationError,
+  type OutputObjectStore
+} from "./generated-output-registrar";
 
-const OUTPUT_BUCKET = "project-assets";
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 
 export type OutputFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-export interface OutputObjectStore {
-  uploadImmutable(path: string, bytes: Uint8Array, contentType: string): Promise<"created" | "exists">;
-}
+export type { OutputObjectStore } from "./generated-output-registrar";
 
 export type ProviderOutputProcessorOptions = {
   fetch?: OutputFetch;
@@ -62,47 +63,26 @@ export class ProviderOutputProcessor {
 
     const attempt = await this.repository.getLatestAttempt(job.id);
     assertCompletedAttempt(job, attempt);
-    const ownerId = await this.repository.getProjectOwnerId(job.projectId);
-    if (!ownerId) {
-      throw new OutputProcessingError(`Project owner for job ${job.id} does not exist.`, false);
-    }
-
     const startedAt = this.now();
     const bytes = await this.download(attempt.result.previewUrl);
-    const contentSha256 = createHash("sha256").update(bytes).digest("hex");
     const probe = await this.inspect(bytes, "provider-output.bin");
-    const mimeType = mimeTypeFor(probe.formatName);
-    const filename = `${contentSha256}.${extensionFor(mimeType)}`;
-    const assetId = deterministicAssetId(job.id, attempt.id);
-    const storagePath = `${ownerId}/${job.projectId}/outputs/${job.id}/${attempt.id}/${filename}`;
+    const registrar = new GeneratedOutputRegistrar(this.repository, this.objectStore);
+    let output;
     try {
-      await this.objectStore.uploadImmutable(storagePath, bytes, mimeType);
+      output = await registrar.materialize(job, attempt, bytes, probe);
     } catch (error) {
-      throw transientError("Unable to store provider output", error);
+      throw processingError("Unable to store provider output", error);
     }
 
     try {
       const downloadLatencyMs = Math.max(0, Math.round(this.now() - startedAt));
-      const registered = await this.repository.registerProviderOutput({
-        assetId,
-        jobId: job.id,
-        attemptId: attempt.id,
-        ownerId,
-        storageBucket: OUTPUT_BUCKET,
-        storagePath,
-        filename,
-        mimeType,
-        sizeBytes: bytes.byteLength,
-        contentSha256,
-        downloadLatencyMs,
-        probe
-      });
+      const registered = await registrar.register(job, attempt, output, downloadLatencyMs);
       return {
         assetId: registered.assetId,
         downloadLatencyMs
       };
     } catch (error) {
-      throw transientError("Unable to register provider output", error);
+      throw processingError("Unable to register provider output", error);
     }
   }
 
@@ -137,7 +117,7 @@ export class ProviderOutputProcessor {
       if (controller.signal.aborted) {
         throw new OutputProcessingError(`Provider output download timed out after ${this.timeoutMs} ms.`, true);
       }
-      throw transientError("Provider output download failed", error);
+      throw processingError("Provider output download failed", error);
     } finally {
       clearTimeout(timeout);
     }
@@ -207,28 +187,10 @@ function isBlockedHostname(hostname: string): boolean {
     normalized === "metadata.google.internal" || normalized === "instance-data";
 }
 
-function deterministicAssetId(jobId: string, attemptId: string): string {
-  const bytes = createHash("sha256").update(`droploop-output:${jobId}:${attemptId}`).digest().subarray(0, 16);
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
-  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-function mimeTypeFor(formatName: string | null): string {
-  const formats = new Set((formatName ?? "").split(","));
-  if (formats.has("webm")) return "video/webm";
-  if (formats.has("mov") && !formats.has("mp4")) return "video/quicktime";
-  return "video/mp4";
-}
-
-function extensionFor(mimeType: string): string {
-  if (mimeType === "video/webm") return "webm";
-  if (mimeType === "video/quicktime") return "mov";
-  return "mp4";
-}
-
-function transientError(prefix: string, error: unknown): OutputProcessingError {
+function processingError(prefix: string, error: unknown): OutputProcessingError {
   const message = error instanceof Error ? error.message : "Unknown failure.";
-  return new OutputProcessingError(`${prefix}: ${message}`, true);
+  return new OutputProcessingError(
+    `${prefix}: ${message}`,
+    error instanceof OutputRegistrationError ? error.retryable : true
+  );
 }

@@ -7,6 +7,7 @@ import type {
   RegisterLoopAnalysisInput,
   RegisteredProviderOutput,
   RegisterProviderOutputInput,
+  RepairSourceAsset,
   ReserveJobInput,
   StoredLoopAnalysis,
   ValidationAsset
@@ -389,6 +390,63 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
       storageBucket: row.storage_bucket,
       storagePath: row.storage_path,
       previewUrl: row.preview_url
+    };
+  }
+
+  async getRepairSource(jobId: string): Promise<RepairSourceAsset | null> {
+    const rows = (await this.sql.unsafe(
+      `
+        select
+          asset.id as asset_id,
+          job.id as job_id,
+          job.project_id,
+          job.source_analysis_id,
+          asset.storage_bucket,
+          asset.storage_path,
+          asset.filename,
+          asset.duration_seconds,
+          asset.frame_rate,
+          coalesce(asset.has_alpha, false) as has_alpha
+        from generation_jobs as job
+        join project_assets as asset
+          on asset.id = job.source_asset_id
+         and asset.project_id = job.project_id
+         and asset.role = 'generated_output'
+         and asset.status = 'ready'
+        join asset_loop_analyses as analysis
+          on analysis.id = job.source_analysis_id
+         and analysis.asset_id = asset.id
+        where job.id = $1
+          and job.operation = 'repair'
+          and job.status = 'repairing'
+        limit 1
+      `,
+      [jobId]
+    )) as unknown as Array<{
+      asset_id: string;
+      job_id: string;
+      project_id: string;
+      source_analysis_id: string;
+      storage_bucket: string;
+      storage_path: string;
+      filename: string;
+      duration_seconds: string | number;
+      frame_rate: string | number;
+      has_alpha: boolean;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      assetId: row.asset_id,
+      jobId: row.job_id,
+      projectId: row.project_id,
+      sourceAnalysisId: row.source_analysis_id,
+      storageBucket: row.storage_bucket,
+      storagePath: row.storage_path,
+      filename: row.filename,
+      durationSeconds: Number(row.duration_seconds),
+      frameRate: Number(row.frame_rate),
+      hasAlpha: row.has_alpha
     };
   }
 

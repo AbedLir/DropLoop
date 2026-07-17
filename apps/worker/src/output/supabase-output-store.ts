@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { OutputObjectStore } from "./provider-output-processor";
+import type { OutputObjectStore } from "./generated-output-registrar";
 
 export class SupabaseOutputObjectStore implements OutputObjectStore {
   private readonly client;

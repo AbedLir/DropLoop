@@ -588,11 +588,32 @@ try {
   assert.equal(repairJob?.input.sourceAnalysisId, repairSourceAnalysis);
 
   await repository.updateJob(reviewJobId, ["queued"], {
+    status: "repairing",
+    provider: "loop-doctor-local",
+    providerJobId: `local-loop-doctor:${reviewJobId}:cyclic-boundary-crossfade-v1`,
+    providerModel: "cyclic-boundary-crossfade-v1",
+    attemptCount: 1,
+    progress: 10
+  });
+  const boundRepairSource = await repository.getRepairSource(reviewJobId);
+  assert.deepEqual(boundRepairSource, {
+    assetId: repairSourceAsset,
+    jobId: reviewJobId,
+    projectId: projectThree,
+    sourceAnalysisId: repairSourceAnalysis,
+    storageBucket: "project-assets",
+    storagePath: repairSourcePath,
+    filename: `${repairSourceSha}.mp4`,
+    durationSeconds: 8,
+    frameRate: 30,
+    hasAlpha: false
+  });
+
+  await repository.updateJob(reviewJobId, ["repairing"], {
     status: "downloading",
     provider: "mock",
     providerJobId: "repair-output-provider-job",
     providerModel: "deterministic-contract-fixture",
-    attemptCount: 1,
     progress: 70
   });
   const repairOutputAttempt = await repository.createAttempt({

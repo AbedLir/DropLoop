@@ -10,6 +10,12 @@ export {
   evaluateLoopBoundary
 } from "./loop-analysis";
 export type { LoopAnalysisPolicy, LoopAnalysisResult } from "./loop-analysis";
+export {
+  LOOP_REPAIR_POLICY_V1,
+  LoopRepairError,
+  repairVideoLoopBuffer
+} from "./loop-repair";
+export type { LoopRepairPolicy, LoopRepairResult } from "./loop-repair";
 
 export type MediaKind = "audio" | "image" | "video";
 

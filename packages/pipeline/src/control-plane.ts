@@ -115,6 +115,18 @@ export type ValidationAsset = {
   frameRate: number;
 };
 
+export type RepairSourceAsset = ValidationAsset & {
+  sourceAnalysisId: string;
+  hasAlpha: boolean;
+};
+
+export type BeginLocalRepairInput = {
+  provider: string;
+  model: string;
+  providerJobId: string;
+  config: Record<string, unknown>;
+};
+
 export type RegisterLoopAnalysisInput = {
   analysisId: string;
   jobId: string;
@@ -138,6 +150,7 @@ export interface DurableJobRepository {
   getLatestAttempt(jobId: string): Promise<JobAttempt | null>;
   getProjectOwnerId(projectId: string): Promise<string | null>;
   registerProviderOutput(input: RegisterProviderOutputInput): Promise<RegisteredProviderOutput>;
+  getRepairSource(jobId: string): Promise<RepairSourceAsset | null>;
   getValidationAsset(jobId: string): Promise<ValidationAsset | null>;
   registerLoopAnalysis(input: RegisterLoopAnalysisInput): Promise<StoredLoopAnalysis>;
   getLatestLoopAnalysis(jobId: string): Promise<StoredLoopAnalysis | null>;
@@ -169,7 +182,7 @@ export class ProviderError extends Error {
 }
 
 const transitions: Record<DurableJobStatus, readonly DurableJobStatus[]> = {
-  queued: ["submitting", "cancelled"],
+  queued: ["submitting", "repairing", "cancelled"],
   submitting: ["provider_running", "downloading", "queued", "failed", "cancelled"],
   provider_running: ["downloading", "queued", "failed", "cancelled"],
   downloading: ["validating", "queued", "failed", "cancelled"],
@@ -317,6 +330,100 @@ export class DurableJobController {
       progress: 0,
       errorCategory: "internal",
       errorMessage: "Recovered after a worker lease expired during provider submission."
+    });
+  }
+
+  async beginLocalRepair(jobId: string, input: BeginLocalRepairInput): Promise<GenerationJob> {
+    const current = await this.requireJob(jobId);
+    if (current.operation !== "repair" || (current.status !== "queued" && current.status !== "repairing")) {
+      throw new JobConflictError(`Job ${current.id} cannot start local repair from ${current.status}.`);
+    }
+    const repairing = current.status === "queued"
+      ? await this.transition(current, "repairing", {
+          provider: input.provider,
+          providerModel: input.model,
+          providerJobId: input.providerJobId,
+          providerConfig: input.config,
+          attemptCount: current.attemptCount + 1,
+          progress: 10,
+          startedAt: current.startedAt ?? this.now().toISOString(),
+          errorCategory: null,
+          errorMessage: null
+        })
+      : current;
+
+    if (
+      repairing.provider !== input.provider ||
+      repairing.providerModel !== input.model ||
+      repairing.providerJobId !== input.providerJobId
+    ) {
+      throw new JobConflictError(`Job ${repairing.id} is already bound to a different repair engine attempt.`);
+    }
+    const latest = await this.repository.getLatestAttempt(repairing.id);
+    if (!latest) {
+      await this.repository.createAttempt({
+        jobId: repairing.id,
+        attemptNumber: repairing.attemptCount,
+        provider: input.provider,
+        providerModel: input.model,
+        providerJobId: input.providerJobId,
+        status: "running",
+        costUsd: 0,
+        rawResponse: { localTransform: input.config },
+        startedAt: this.now().toISOString()
+      });
+    } else if (
+      latest.attemptNumber !== repairing.attemptCount ||
+      latest.providerJobId !== input.providerJobId ||
+      latest.provider !== input.provider
+    ) {
+      throw new JobConflictError(`Job ${repairing.id} has a conflicting latest repair attempt.`);
+    }
+    return generationJobSchema.parse(repairing);
+  }
+
+  async completeLocalRepair(jobId: string, assetId: string, materializationLatencyMs: number): Promise<GenerationJob> {
+    const job = await this.requireJob(jobId);
+    if (job.status !== "repairing") {
+      throw new JobConflictError(`Job ${job.id} cannot complete local repair from ${job.status}.`);
+    }
+    if (job.outputAssetId && job.outputAssetId !== assetId) {
+      throw new JobConflictError(`Job ${job.id} already references a different immutable repair output.`);
+    }
+    return this.transition(job, "validating", {
+      progress: 85,
+      outputAssetId: assetId,
+      downloadLatencyMs: materializationLatencyMs,
+      errorCategory: null,
+      errorMessage: null
+    });
+  }
+
+  async recordLocalRepairFailure(jobId: string, message: string, retryable: boolean): Promise<GenerationJob> {
+    const job = await this.requireJob(jobId);
+    if (job.status !== "repairing") {
+      throw new JobConflictError(`Job ${job.id} cannot record a local repair failure from ${job.status}.`);
+    }
+    if (retryable) {
+      return this.repository.updateJob(job.id, ["repairing"], {
+        errorCategory: "internal",
+        errorMessage: message
+      });
+    }
+    if (job.providerJobId) {
+      const attempt = await this.repository.getLatestAttempt(job.id);
+      if (attempt?.providerJobId === job.providerJobId && attempt.status === "running") {
+        await this.repository.updateAttempt(job.providerJobId, {
+          status: "failed",
+          errorCategory: "validation_failed",
+          errorMessage: message,
+          finishedAt: this.now().toISOString()
+        });
+      }
+    }
+    return this.transition(job, "failed", {
+      errorCategory: "validation_failed",
+      errorMessage: message
     });
   }
 

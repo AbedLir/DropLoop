@@ -14,6 +14,7 @@ import type {
   RegisteredProviderOutput,
   RegisterProviderOutputInput,
   RepairVideoInput,
+  RepairSourceAsset,
   ReserveJobInput,
   StoredLoopAnalysis,
   ValidationAsset,
@@ -91,6 +92,42 @@ describe("durable control plane", () => {
       sourceAssetId: "asset-1",
       sourceAnalysisId: "analysis-1"
     })).not.toThrow();
+  });
+
+  it("runs local repair as a zero-cost durable attempt and resumes the same attempt", async () => {
+    const repository = new MemoryJobRepository();
+    const controller = new DurableJobController(repository, new FakeProvider(), now);
+    const { job } = await controller.enqueue({
+      ...jobInput(),
+      operation: "repair",
+      sourceAssetId: "asset-source",
+      sourceAnalysisId: "analysis-source"
+    });
+    const input = {
+      provider: "loop-doctor-local",
+      model: "cyclic-boundary-crossfade-v1",
+      providerJobId: `local-loop-doctor:${job.id}:cyclic-boundary-crossfade-v1`,
+      config: { transitionSeconds: 0.5 }
+    };
+
+    const repairing = await controller.beginLocalRepair(job.id, input);
+    const resumed = await controller.beginLocalRepair(job.id, input);
+
+    expect(repairing).toMatchObject({ status: "repairing", attemptCount: 1, costUsd: 0 });
+    expect(resumed.id).toBe(repairing.id);
+    expect(repository.attempts).toHaveLength(1);
+    expect(repository.attempts[0]).toMatchObject({
+      provider: "loop-doctor-local",
+      providerModel: "cyclic-boundary-crossfade-v1",
+      status: "running",
+      costUsd: 0
+    });
+    const validating = await controller.completeLocalRepair(job.id, "asset-repaired", 725);
+    expect(validating).toMatchObject({
+      status: "validating",
+      outputAssetId: "asset-repaired",
+      downloadLatencyMs: 725
+    });
   });
 
   it("keeps dependent pipeline work blocked while split work remains claimable", async () => {
@@ -501,6 +538,23 @@ class MemoryJobRepository implements DurableJobRepository {
       storageBucket: input.storageBucket,
       storagePath: input.storagePath,
       previewUrl: `/api/projects/${job.projectId}/assets/${input.assetId}/content`
+    };
+  }
+
+  async getRepairSource(jobId: string): Promise<RepairSourceAsset | null> {
+    const job = this.jobs.get(jobId);
+    if (!job?.sourceAssetId || !job.sourceAnalysisId) return null;
+    return {
+      assetId: job.sourceAssetId,
+      jobId,
+      projectId: job.projectId,
+      sourceAnalysisId: job.sourceAnalysisId,
+      storageBucket: "project-assets",
+      storagePath: `owner/${job.projectId}/source.mp4`,
+      filename: "source.mp4",
+      durationSeconds: 8,
+      frameRate: 30,
+      hasAlpha: false
     };
   }
 

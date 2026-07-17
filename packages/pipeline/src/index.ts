@@ -58,6 +58,7 @@ export {
 } from "./control-plane";
 export type {
   CreateAttemptInput,
+  BeginLocalRepairInput,
   DurableJobRepository,
   GenerateVideoInput,
   JobChanges,
@@ -65,6 +66,7 @@ export type {
   RegisteredProviderOutput,
   RegisterProviderOutputInput,
   RepairVideoInput,
+  RepairSourceAsset,
   ReserveJobInput,
   StoredLoopAnalysis,
   ValidationAsset,

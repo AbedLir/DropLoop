@@ -3,6 +3,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
+export {
+  LOOP_ANALYSIS_POLICY_V1,
+  LoopAnalysisError,
+  analyzeVideoLoopBuffer,
+  evaluateLoopBoundary
+} from "./loop-analysis";
+export type { LoopAnalysisPolicy, LoopAnalysisResult } from "./loop-analysis";
+
 export type MediaKind = "audio" | "image" | "video";
 
 export type MediaProbe = {

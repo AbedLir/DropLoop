@@ -4,6 +4,7 @@ import { clipPromptSchema, generatedClipSchema } from "@droploop/schemas";
 import { createVideoProvider, selectVideoProviderName } from "./providers/provider-factory";
 import { OutputProcessingError, ProviderOutputProcessor } from "./output/provider-output-processor";
 import { SupabaseOutputObjectStore } from "./output/supabase-output-store";
+import { LoopAnalysisProcessor, LoopValidationError } from "./output/loop-analysis-processor";
 
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const leaseSeconds = Number(process.env.JOB_LEASE_SECONDS ?? 60);
@@ -54,7 +55,16 @@ try {
           await controller.recordDownloadFailure(job.id, failure.message, failure.retryable);
         }
       } else if (job.status === "validating") {
-        await controller.completeValidation(job.id);
+        try {
+          const objectStore = new SupabaseOutputObjectStore();
+          await new LoopAnalysisProcessor(repository, objectStore).process(job);
+          await controller.completeValidation(job.id);
+        } catch (error) {
+          const failure = error instanceof LoopValidationError
+            ? error
+            : new LoopValidationError(error instanceof Error ? error.message : "Unknown loop validation failure.", true);
+          await controller.recordValidationFailure(job.id, failure.message, failure.retryable);
+        }
       } else {
         console.log(`Claimed job ${job.id} in ${job.status}; no worker action is registered.`);
       }

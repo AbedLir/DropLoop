@@ -4,7 +4,8 @@ import {
   providerJobSnapshotSchema,
   providerSubmissionSchema
 } from "@droploop/schemas";
-import type { MediaProbe } from "@droploop/media";
+import { LOOP_ANALYSIS_POLICY_V1 } from "@droploop/media";
+import type { LoopAnalysisResult, MediaProbe } from "@droploop/media";
 import type {
   ClipPrompt,
   DurableJobStatus,
@@ -100,6 +101,28 @@ export type RegisteredProviderOutput = {
   previewUrl: string;
 };
 
+export type ValidationAsset = {
+  assetId: string;
+  jobId: string;
+  projectId: string;
+  storageBucket: string;
+  storagePath: string;
+  filename: string;
+  durationSeconds: number;
+  frameRate: number;
+};
+
+export type RegisterLoopAnalysisInput = {
+  analysisId: string;
+  jobId: string;
+  assetId: string;
+  result: LoopAnalysisResult;
+};
+
+export type StoredLoopAnalysis = RegisterLoopAnalysisInput & {
+  createdAt: string;
+};
+
 export interface DurableJobRepository {
   reserveJob(input: ReserveJobInput): Promise<{ job: GenerationJob; created: boolean }>;
   getJob(jobId: string): Promise<GenerationJob | null>;
@@ -111,6 +134,9 @@ export interface DurableJobRepository {
   getLatestAttempt(jobId: string): Promise<JobAttempt | null>;
   getProjectOwnerId(projectId: string): Promise<string | null>;
   registerProviderOutput(input: RegisterProviderOutputInput): Promise<RegisteredProviderOutput>;
+  getValidationAsset(jobId: string): Promise<ValidationAsset | null>;
+  registerLoopAnalysis(input: RegisterLoopAnalysisInput): Promise<StoredLoopAnalysis>;
+  getLatestLoopAnalysis(jobId: string): Promise<StoredLoopAnalysis | null>;
   listJobTimeline(jobId: string, afterSequence?: number, limit?: number): Promise<JobTimelineEvent[]>;
 }
 
@@ -312,10 +338,35 @@ export class DurableJobController {
     if (!job.outputAssetId) {
       throw new JobConflictError(`Job ${job.id} has no immutable output asset to validate.`);
     }
+    const analysis = await this.repository.getLatestLoopAnalysis(job.id);
+    if (
+      !analysis ||
+      analysis.assetId !== job.outputAssetId ||
+      analysis.result.algorithmVersion !== LOOP_ANALYSIS_POLICY_V1.algorithmVersion
+    ) {
+      throw new JobConflictError(`Job ${job.id} has no current persisted loop analysis for its immutable output asset.`);
+    }
     return this.transition(job, "awaiting_review", {
       progress: 100,
       errorCategory: null,
       errorMessage: null
+    });
+  }
+
+  async recordValidationFailure(jobId: string, message: string, retryable: boolean): Promise<GenerationJob> {
+    const job = await this.requireJob(jobId);
+    if (job.status !== "validating") {
+      throw new JobConflictError(`Job ${job.id} cannot record a validation failure from ${job.status}.`);
+    }
+    if (retryable) {
+      return this.repository.updateJob(job.id, ["validating"], {
+        errorCategory: "validation_failed",
+        errorMessage: message
+      });
+    }
+    return this.transition(job, "failed", {
+      errorCategory: "validation_failed",
+      errorMessage: message
     });
   }
 

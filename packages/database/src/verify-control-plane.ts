@@ -16,6 +16,7 @@ const projectThree = "10000000-0000-4000-8000-000000000003";
 const pipelineWorkflow = "20000000-0000-4000-8000-000000000001";
 const sourceAsset = "30000000-0000-4000-8000-000000000001";
 const providerOutputAsset = "30000000-0000-4000-8000-000000000010";
+const providerOutputAnalysis = "40000000-0000-4000-8000-000000000010";
 const sourceAssetPath = `${userOne}/${projectThree}/sources/${sourceAsset}/source.mp3`;
 
 try {
@@ -27,7 +28,7 @@ try {
     grant usage on schema public, auth, storage to authenticated;
     grant select, insert, update, delete on users_profile, projects, project_assets to authenticated;
     grant select, insert on generation_jobs to authenticated;
-    grant select on clips, review_actions, exports to authenticated;
+    grant select on clips, review_actions, exports, asset_loop_analyses to authenticated;
     grant select on job_attempts, job_dependencies, job_timeline_events to authenticated;
     grant select, insert, update, delete on storage.objects to authenticated;
 
@@ -193,6 +194,42 @@ try {
   assert.equal(claimedValidation?.id, outputJob.job.id);
   assert.equal(claimedValidation?.status, "validating");
   await repository.releaseLease(outputJob.job.id, "output-validation-worker");
+  const loopResult = {
+    algorithmVersion: "boundary-gray-mae-v1",
+    decision: "pass" as const,
+    loopScore: 98,
+    boundaryMaePercent: 2,
+    firstFrameLumaPercent: 41,
+    lastFrameLumaPercent: 42,
+    brightnessJumpPercent: 1,
+    firstFrameBlack: false,
+    lastFrameBlack: false,
+    reasons: [],
+    policy: {
+      algorithmVersion: "boundary-gray-mae-v1",
+      frameWidth: 64,
+      frameHeight: 64,
+      maxBoundaryMaePercent: 12,
+      maxBrightnessJumpPercent: 8,
+      blackFrameLumaFloorPercent: 2
+    }
+  };
+  const registeredAnalysis = await repository.registerLoopAnalysis({
+    analysisId: providerOutputAnalysis,
+    jobId: outputJob.job.id,
+    assetId: providerOutputAsset,
+    result: loopResult
+  });
+  assert.equal(registeredAnalysis.analysisId, providerOutputAnalysis);
+  assert.deepEqual(registeredAnalysis.result, loopResult);
+  const registeredAnalysisAgain = await repository.registerLoopAnalysis({
+    analysisId: providerOutputAnalysis,
+    jobId: outputJob.job.id,
+    assetId: providerOutputAsset,
+    result: loopResult
+  });
+  assert.equal(registeredAnalysisAgain.analysisId, providerOutputAnalysis);
+  assert.equal((await repository.getLatestLoopAnalysis(outputJob.job.id))?.assetId, providerOutputAsset);
   await repository.updateJob(outputJob.job.id, ["validating"], { status: "awaiting_review", progress: 100 });
 
   const pipelineFirst = await repository.reserveJob({
@@ -588,10 +625,15 @@ try {
     )) as unknown as Array<{ job_id: string }>;
     assert.equal(visibleTimeline.some((row) => row.job_id === foreignJob.job.id), false);
     assert.equal(visibleTimeline.some((row) => row.job_id === first.job.id), true);
+
+    const visibleAnalyses = (await transaction.unsafe(
+      "select id from asset_loop_analyses order by id"
+    )) as unknown as Array<{ id: string }>;
+    assert.deepEqual(visibleAnalyses.map((row) => row.id), [providerOutputAnalysis]);
   });
 
   console.log(
-    "Database migrations, private immutable source/provider outputs, BPM provenance, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
+    "Database migrations, private immutable source/provider outputs, decoded loop evidence, BPM provenance, project/review persistence, idempotency, dependency-aware leasing, timeline, and project RLS verified."
   );
 } finally {
   await sql.end();

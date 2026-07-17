@@ -10,10 +10,13 @@ import type {
   DurableJobRepository,
   GenerateVideoInput,
   JobChanges,
+  RegisterLoopAnalysisInput,
   RegisteredProviderOutput,
   RegisterProviderOutputInput,
   RepairVideoInput,
   ReserveJobInput,
+  StoredLoopAnalysis,
+  ValidationAsset,
   VideoProvider
 } from "@droploop/pipeline";
 import {
@@ -157,6 +160,13 @@ describe("durable control plane", () => {
 
     const validating = await controller.completeDownload(job.id, "asset-1", 1250);
     expect(validating).toMatchObject({ status: "validating", outputAssetId: "asset-1", downloadLatencyMs: 1250 });
+    await expect(controller.completeValidation(job.id)).rejects.toThrow("no current persisted loop analysis");
+    await repository.registerLoopAnalysis({
+      analysisId: "analysis-1",
+      jobId: job.id,
+      assetId: "asset-1",
+      result: passingLoopAnalysis()
+    });
     const awaitingReview = await controller.completeValidation(job.id);
     expect(awaitingReview).toMatchObject({ status: "awaiting_review", progress: 100 });
 
@@ -282,6 +292,7 @@ class MemoryJobRepository implements DurableJobRepository {
   readonly attempts: JobAttempt[] = [];
   readonly dependencies = new Map<string, Set<string>>();
   readonly timeline: JobTimelineEvent[] = [];
+  readonly loopAnalyses: StoredLoopAnalysis[] = [];
   private jobSequence = 0;
   private attemptSequence = 0;
   private eventSequence = 0;
@@ -474,6 +485,31 @@ class MemoryJobRepository implements DurableJobRepository {
     };
   }
 
+  async getValidationAsset(jobId: string): Promise<ValidationAsset | null> {
+    const job = this.jobs.get(jobId);
+    if (!job?.outputAssetId) return null;
+    return {
+      assetId: job.outputAssetId,
+      jobId,
+      projectId: job.projectId,
+      storageBucket: "project-assets",
+      storagePath: `owner/${job.projectId}/outputs/${jobId}/output.mp4`,
+      filename: "output.mp4",
+      durationSeconds: 8,
+      frameRate: 30
+    };
+  }
+
+  async registerLoopAnalysis(input: RegisterLoopAnalysisInput): Promise<StoredLoopAnalysis> {
+    const stored = { ...input, createdAt: now().toISOString() };
+    this.loopAnalyses.push(stored);
+    return stored;
+  }
+
+  async getLatestLoopAnalysis(jobId: string): Promise<StoredLoopAnalysis | null> {
+    return this.loopAnalyses.filter((analysis) => analysis.jobId === jobId).at(-1) ?? null;
+  }
+
   async listJobTimeline(jobId: string, afterSequence = 0, limit = 100): Promise<JobTimelineEvent[]> {
     return this.timeline
       .filter((event) => event.jobId === jobId && event.sequence > afterSequence)
@@ -507,4 +543,27 @@ class MemoryJobRepository implements DurableJobRepository {
       })
     );
   }
+}
+
+function passingLoopAnalysis(): RegisterLoopAnalysisInput["result"] {
+  return {
+    algorithmVersion: "boundary-gray-mae-v1",
+    decision: "pass",
+    loopScore: 98,
+    boundaryMaePercent: 2,
+    firstFrameLumaPercent: 40,
+    lastFrameLumaPercent: 41,
+    brightnessJumpPercent: 1,
+    firstFrameBlack: false,
+    lastFrameBlack: false,
+    reasons: [],
+    policy: {
+      algorithmVersion: "boundary-gray-mae-v1",
+      frameWidth: 64,
+      frameHeight: 64,
+      maxBoundaryMaePercent: 12,
+      maxBrightnessJumpPercent: 8,
+      blackFrameLumaFloorPercent: 2
+    }
+  };
 }

@@ -61,10 +61,13 @@ export type {
   DurableJobRepository,
   GenerateVideoInput,
   JobChanges,
+  RegisterLoopAnalysisInput,
   RegisteredProviderOutput,
   RegisterProviderOutputInput,
   RepairVideoInput,
   ReserveJobInput,
+  StoredLoopAnalysis,
+  ValidationAsset,
   VideoProvider
 } from "./control-plane";
 

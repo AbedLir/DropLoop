@@ -24,6 +24,14 @@ export class SupabaseOutputObjectStore implements OutputObjectStore {
     }
     throw error;
   }
+
+  async download(path: string): Promise<Uint8Array> {
+    const { data, error } = await this.client.storage.from("project-assets").download(path);
+    if (error) throw error;
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    if (bytes.byteLength === 0) throw new Error("Stored provider output is empty.");
+    return bytes;
+  }
 }
 
 function requireEnvironment(...names: string[]): string {

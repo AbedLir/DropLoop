@@ -4,9 +4,12 @@ import type {
   CreateAttemptInput,
   DurableJobRepository,
   JobChanges,
+  RegisterLoopAnalysisInput,
   RegisteredProviderOutput,
   RegisterProviderOutputInput,
-  ReserveJobInput
+  ReserveJobInput,
+  StoredLoopAnalysis,
+  ValidationAsset
 } from "@droploop/pipeline";
 import { generationJobSchema, jobAttemptSchema, jobTimelineEventSchema } from "@droploop/schemas";
 import type { DurableJobStatus, GenerationJob, JobAttempt, JobTimelineEvent } from "@droploop/schemas";
@@ -71,6 +74,14 @@ type TimelineRow = {
   from_status: string | null;
   to_status: string | null;
   payload: Record<string, unknown> | string;
+  created_at: Date | string;
+};
+
+type LoopAnalysisRow = {
+  analysis_id: string;
+  job_id: string;
+  asset_id: string;
+  evidence: RegisterLoopAnalysisInput["result"] | string;
   created_at: Date | string;
 };
 
@@ -372,6 +383,80 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
     };
   }
 
+  async getValidationAsset(jobId: string): Promise<ValidationAsset | null> {
+    const rows = (await this.sql.unsafe(
+      `
+        select
+          asset.id as asset_id,
+          job.id as job_id,
+          job.project_id,
+          asset.storage_bucket,
+          asset.storage_path,
+          asset.filename,
+          asset.duration_seconds,
+          asset.frame_rate
+        from generation_jobs as job
+        join project_assets as asset on asset.id = job.output_asset_id
+        where job.id = $1
+          and job.status = 'validating'
+          and asset.source_job_id = job.id
+          and asset.role = 'generated_output'
+        limit 1
+      `,
+      [jobId]
+    )) as unknown as Array<{
+      asset_id: string;
+      job_id: string;
+      project_id: string;
+      storage_bucket: string;
+      storage_path: string;
+      filename: string;
+      duration_seconds: string | number;
+      frame_rate: string | number;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      assetId: row.asset_id,
+      jobId: row.job_id,
+      projectId: row.project_id,
+      storageBucket: row.storage_bucket,
+      storagePath: row.storage_path,
+      filename: row.filename,
+      durationSeconds: Number(row.duration_seconds),
+      frameRate: Number(row.frame_rate)
+    };
+  }
+
+  async registerLoopAnalysis(input: RegisterLoopAnalysisInput): Promise<StoredLoopAnalysis> {
+    const rows = (await this.sql.unsafe(
+      "select * from register_asset_loop_analysis($1::uuid, $2::uuid, $3::uuid, $4::jsonb)",
+      [input.analysisId, input.jobId, input.assetId, this.sql.json(input.result as never)]
+    )) as unknown as LoopAnalysisRow[];
+    const row = rows[0];
+    if (!row) throw new JobConflictError(`Database did not register loop analysis for job ${input.jobId}.`);
+    return mapLoopAnalysis(row);
+  }
+
+  async getLatestLoopAnalysis(jobId: string): Promise<StoredLoopAnalysis | null> {
+    const rows = (await this.sql.unsafe(
+      `
+        select
+          analysis.id as analysis_id,
+          analysis.job_id,
+          analysis.asset_id,
+          analysis.evidence,
+          analysis.created_at
+        from asset_loop_analyses as analysis
+        where analysis.job_id = $1
+        order by analysis.created_at desc, analysis.id desc
+        limit 1
+      `,
+      [jobId]
+    )) as unknown as LoopAnalysisRow[];
+    return rows[0] ? mapLoopAnalysis(rows[0]) : null;
+  }
+
   async listJobTimeline(jobId: string, afterSequence = 0, limit = 100): Promise<JobTimelineEvent[]> {
     const boundedLimit = Math.min(Math.max(limit, 1), 200);
     const rows = (await this.sql.unsafe(
@@ -455,6 +540,16 @@ function mapAttempt(row: AttemptRow): JobAttempt {
     startedAt: toIso(row.started_at),
     ...(row.finished_at ? { finishedAt: toIso(row.finished_at) } : {})
   });
+}
+
+function mapLoopAnalysis(row: LoopAnalysisRow): StoredLoopAnalysis {
+  return {
+    analysisId: row.analysis_id,
+    jobId: row.job_id,
+    assetId: row.asset_id,
+    result: (typeof row.evidence === "string" ? JSON.parse(row.evidence) : row.evidence) as RegisterLoopAnalysisInput["result"],
+    createdAt: toIso(row.created_at)
+  };
 }
 
 function toIso(value: Date | string): string {

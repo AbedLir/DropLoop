@@ -751,7 +751,8 @@ try {
       "select * from request_resolume_export($1, $2, $3)",
       [projectThree, persistedClipId, "web-export:resolume:one"]
     )) as unknown as Array<{ export_id: string; job_id: string }>;
-    assert.deepEqual(duplicate[0], { export_id: resolumeExportId, job_id: resolumeExportJobId });
+    assert.equal(duplicate[0]?.export_id, resolumeExportId);
+    assert.equal(duplicate[0]?.job_id, resolumeExportJobId);
   });
 
   await repository.updateJob(resolumeExportJobId, ["queued"], {

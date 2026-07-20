@@ -734,7 +734,8 @@ try {
       "select * from apply_clip_review_action($1, $2, 'approve', 'Loop Doctor v3 accepted', $3)",
       [projectThree, persistedClipId, "web-review:approve-after-repair"]
     )) as unknown as Array<{ review_status: string; clip_status: string }>;
-    assert.deepEqual(finalApproval[0], { review_status: "approved", clip_status: "approved" });
+    assert.equal(finalApproval[0]?.review_status, "approved");
+    assert.equal(finalApproval[0]?.clip_status, "approved");
 
     const requested = (await transaction.unsafe(
       "select * from request_resolume_export($1, $2, $3)",

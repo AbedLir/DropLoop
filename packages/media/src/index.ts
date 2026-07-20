@@ -26,6 +26,13 @@ export {
   repairVideoLoopBuffer
 } from "./loop-repair";
 export type { LoopRepairPolicy, LoopRepairResult } from "./loop-repair";
+export {
+  PRORES_4444_EXPORT_POLICY_V1,
+  ProRes4444ExportError,
+  assertProRes4444ExportProbe,
+  exportVideoForResolumeBuffer
+} from "./prores-export";
+export type { ProRes4444ExportPolicy, ProRes4444ExportResult } from "./prores-export";
 
 export type MediaKind = "audio" | "image" | "video";
 

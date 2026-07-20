@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { assertReserveJobTopology, JobConflictError } from "@droploop/pipeline";
 import type {
   CreateAttemptInput,
+  CompleteResolumeExportInput,
   DurableJobRepository,
   JobChanges,
   RegisterLoopAnalysisInput,
   RegisteredProviderOutput,
   RegisterProviderOutputInput,
   RepairSourceAsset,
+  ResolumeExportSource,
   ReserveJobInput,
   StoredLoopAnalysis,
   ValidationAsset
@@ -448,6 +450,93 @@ export class PostgresDurableJobRepository implements DurableJobRepository {
       frameRate: Number(row.frame_rate),
       hasAlpha: row.has_alpha
     };
+  }
+
+  async getResolumeExportSource(jobId: string): Promise<ResolumeExportSource | null> {
+    const rows = (await this.sql.unsafe(
+      `
+        select
+          delivery.id as export_id,
+          asset.id as asset_id,
+          job.id as job_id,
+          job.project_id,
+          delivery.source_analysis_id,
+          asset.storage_bucket,
+          asset.storage_path,
+          asset.filename,
+          asset.duration_seconds,
+          asset.frame_rate,
+          coalesce(asset.has_alpha, false) as has_alpha,
+          asset.content_sha256 as source_content_sha256,
+          analysis.evidence as loop_evidence
+        from generation_jobs as job
+        join exports as delivery
+          on delivery.job_id = job.id
+         and delivery.project_id = job.project_id
+         and delivery.status = 'exporting'
+        join project_assets as asset
+          on asset.id = delivery.source_asset_id
+         and asset.project_id = job.project_id
+         and asset.role = 'generated_output'
+         and asset.status = 'ready'
+        join asset_loop_analyses as analysis
+          on analysis.id = delivery.source_analysis_id
+         and analysis.asset_id = asset.id
+         and analysis.algorithm_version = 'boundary-seam-window-gray-v3'
+         and analysis.decision = 'pass'
+        where job.id = $1
+          and job.operation = 'export'
+          and job.status = 'exporting'
+        limit 1
+      `,
+      [jobId]
+    )) as unknown as Array<{
+      export_id: string;
+      asset_id: string;
+      job_id: string;
+      project_id: string;
+      source_analysis_id: string;
+      storage_bucket: string;
+      storage_path: string;
+      filename: string;
+      duration_seconds: string | number;
+      frame_rate: string | number;
+      has_alpha: boolean;
+      source_content_sha256: string;
+      loop_evidence: RegisterLoopAnalysisInput["result"] | string;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      exportId: row.export_id,
+      assetId: row.asset_id,
+      jobId: row.job_id,
+      projectId: row.project_id,
+      sourceAnalysisId: row.source_analysis_id,
+      storageBucket: row.storage_bucket,
+      storagePath: row.storage_path,
+      filename: row.filename,
+      durationSeconds: Number(row.duration_seconds),
+      frameRate: Number(row.frame_rate),
+      hasAlpha: row.has_alpha,
+      sourceContentSha256: row.source_content_sha256,
+      loopEvidence: (typeof row.loop_evidence === "string" ? JSON.parse(row.loop_evidence) : row.loop_evidence) as RegisterLoopAnalysisInput["result"]
+    };
+  }
+
+  async completeResolumeExport(input: CompleteResolumeExportInput): Promise<void> {
+    await this.sql.unsafe(
+      "select complete_resolume_export($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::jsonb)",
+      [
+        input.exportId,
+        input.jobId,
+        input.ownerId,
+        input.packageStoragePath,
+        input.mediaStoragePath,
+        input.manifestStoragePath,
+        this.sql.json(input.manifest as never)
+      ]
+    );
   }
 
   async getValidationAsset(jobId: string): Promise<ValidationAsset | null> {

@@ -482,6 +482,43 @@ export const exportPresetDetailSchema = z.object({
   notes: z.array(z.string())
 });
 
+export const resolumeDeliveryManifestSchema = z.object({
+  schemaVersion: z.literal("resolume-delivery-v1"),
+  exportId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  jobId: z.string().uuid(),
+  preset: z.literal("resolume"),
+  deliveryState: z.literal("ready_for_manual_resolume_import"),
+  source: z.object({
+    assetId: z.string().uuid(),
+    sourceAnalysisId: z.string().uuid(),
+    contentSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    filename: z.string().min(1),
+    hasAlpha: z.boolean()
+  }),
+  media: z.object({
+    filename: z.string().regex(/\.mov$/i),
+    storagePath: z.string().min(1),
+    mimeType: z.literal("video/quicktime"),
+    codec: z.literal("prores"),
+    pixelFormat: z.string().min(1),
+    hasAlpha: z.boolean(),
+    durationSeconds: z.number().positive(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    frameRate: z.number().positive()
+  }),
+  loopEvidence: z.object({
+    algorithmVersion: z.literal("boundary-seam-window-gray-v3"),
+    decision: z.literal("pass"),
+    seamContinuityScore: z.number().int().min(0).max(100),
+    brightnessSafetyScore: z.number().int().min(0).max(100),
+    flickerSafetyScore: z.number().int().min(0).max(100)
+  }),
+  operatorNotes: z.array(z.string()).min(1),
+  unresolvedAcceptance: z.array(z.string()).min(1)
+});
+
 export type Project = z.infer<typeof projectSchema>;
 export type ProjectBrief = z.infer<typeof projectBriefSchema>;
 export type AssetInsight = z.infer<typeof assetInsightSchema>;
@@ -514,6 +551,7 @@ export type SafetyReport = z.infer<typeof safetyReportSchema>;
 export type ReviewAction = z.infer<typeof reviewActionSchema>;
 export type ClipReview = z.infer<typeof clipReviewSchema>;
 export type ExportPresetDetail = z.infer<typeof exportPresetDetailSchema>;
+export type ResolumeDeliveryManifest = z.infer<typeof resolumeDeliveryManifestSchema>;
 export type DurableJobStatus = z.infer<typeof durableJobStatusSchema>;
 export type JobOperation = z.infer<typeof jobOperationSchema>;
 export type OrchestrationMode = z.infer<typeof orchestrationModeSchema>;

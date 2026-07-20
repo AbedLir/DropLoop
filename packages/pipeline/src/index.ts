@@ -41,6 +41,8 @@ import { z } from "zod";
 import { classifyVjAssets } from "./asset-classifier";
 import { buildCanvasModel } from "./canvas-model";
 export { buildExportPresetDetail } from "./export-manifest";
+export { buildResolumeDeliveryManifest } from "./resolume-delivery";
+export type { ResolumeDeliveryManifestInput } from "./resolume-delivery";
 import { evaluateClipGate } from "./quality-gates";
 export { evaluateClipGate } from "./quality-gates";
 import { buildVjRecipeCatalog } from "./recipes";
@@ -58,6 +60,8 @@ export {
 } from "./control-plane";
 export type {
   CreateAttemptInput,
+  BeginLocalResolumeExportInput,
+  CompleteResolumeExportInput,
   BeginLocalRepairInput,
   DurableJobRepository,
   GenerateVideoInput,
@@ -67,6 +71,7 @@ export type {
   RegisterProviderOutputInput,
   RepairVideoInput,
   RepairSourceAsset,
+  ResolumeExportSource,
   ReserveJobInput,
   StoredLoopAnalysis,
   ValidationAsset,

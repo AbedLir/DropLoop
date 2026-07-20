@@ -67,6 +67,13 @@ const reviewResultRowSchema = z.object({
   created_at: z.string()
 });
 
+const resolumeExportRequestRowSchema = z.object({
+  export_id: z.string().uuid(),
+  job_id: z.string().uuid(),
+  status: z.literal("queued"),
+  created_at: z.string()
+});
+
 const projectAssetRowSchema = z.object({
   id: z.string().uuid(),
   project_id: z.string().uuid(),
@@ -123,6 +130,7 @@ export type PersistedReview = {
 };
 
 export type AppliedReview = z.infer<typeof reviewResultRowSchema>;
+export type RequestedResolumeExport = z.infer<typeof resolumeExportRequestRowSchema>;
 export type PersistedProjectAsset = z.infer<typeof projectAssetRowSchema>;
 
 export class SupabaseProjectStore {
@@ -383,6 +391,22 @@ export class SupabaseProjectStore {
 
     assertSupabaseSuccess(error, "Unable to apply the review action.");
     return reviewResultRowSchema.parse(data);
+  }
+
+  async requestResolumeExport(input: {
+    projectId: string;
+    clipId: string;
+    idempotencyKey: string;
+  }): Promise<RequestedResolumeExport> {
+    const { data, error } = await this.client
+      .rpc("request_resolume_export", {
+        p_project_id: input.projectId,
+        p_clip_id: input.clipId,
+        p_idempotency_key: input.idempotencyKey
+      })
+      .single();
+    assertSupabaseSuccess(error, "Unable to queue Resolume export.");
+    return resolumeExportRequestRowSchema.parse(data);
   }
 }
 

@@ -14,5 +14,6 @@
 - [ADR-0012: Versioned local Loop Doctor transform](0012-versioned-local-loop-doctor-transform.md)
 - [ADR-0013: Representative-frame temporal safety gate](0013-representative-frame-temporal-safety-gate.md)
 - [ADR-0014: Seam-window loop continuity gate](0014-seam-window-loop-continuity-gate.md)
+- [ADR-0015: Private ProRes 4444 Resolume delivery](0015-private-prores-resolume-delivery.md)
 
 ADRs are immutable after acceptance. If a decision changes, add a new ADR that supersedes the old one.

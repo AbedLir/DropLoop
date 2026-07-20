@@ -608,6 +608,18 @@ try {
     assert.equal(duplicateReview[0]?.job_id, reviewJobId);
   });
 
+  await assert.rejects(
+    sql.begin(async (transaction) => {
+      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
+      await transaction.unsafe(
+        "select * from apply_clip_review_action($1, $2, 'approve', '', 'web-review:approve:while-repairing')",
+        [projectThree, persistedClipId]
+      );
+    }),
+    /clip already has an active durable job/
+  );
+
   const repairJob = await repository.getJob(reviewJobId);
   assert.equal(repairJob?.sourceAssetId, repairSourceAsset);
   assert.equal(repairJob?.sourceAnalysisId, repairSourceAnalysis);
@@ -713,6 +725,111 @@ try {
     current_asset_id: repairOutputAsset
   });
 
+  let resolumeExportId = "";
+  let resolumeExportJobId = "";
+  await sql.begin(async (transaction) => {
+    await transaction.unsafe("set local role authenticated");
+    await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
+    const finalApproval = (await transaction.unsafe(
+      "select * from apply_clip_review_action($1, $2, 'approve', 'Loop Doctor v3 accepted', $3)",
+      [projectThree, persistedClipId, "web-review:approve-after-repair"]
+    )) as unknown as Array<{ review_status: string; clip_status: string }>;
+    assert.deepEqual(finalApproval[0], { review_status: "approved", clip_status: "approved" });
+
+    const requested = (await transaction.unsafe(
+      "select * from request_resolume_export($1, $2, $3)",
+      [projectThree, persistedClipId, "web-export:resolume:one"]
+    )) as unknown as Array<{ export_id: string; job_id: string; status: string }>;
+    resolumeExportId = requested[0]?.export_id ?? "";
+    resolumeExportJobId = requested[0]?.job_id ?? "";
+    assert.ok(resolumeExportId);
+    assert.ok(resolumeExportJobId);
+    assert.equal(requested[0]?.status, "queued");
+
+    const duplicate = (await transaction.unsafe(
+      "select * from request_resolume_export($1, $2, $3)",
+      [projectThree, persistedClipId, "web-export:resolume:one"]
+    )) as unknown as Array<{ export_id: string; job_id: string }>;
+    assert.deepEqual(duplicate[0], { export_id: resolumeExportId, job_id: resolumeExportJobId });
+  });
+
+  await repository.updateJob(resolumeExportJobId, ["queued"], {
+    status: "exporting",
+    provider: "resolume-export-local",
+    providerJobId: `local-resolume-export:${resolumeExportJobId}:resolume-prores-4444-v1`,
+    providerModel: "resolume-prores-4444-v1",
+    providerConfig: { algorithmVersion: "resolume-prores-4444-v1" },
+    attemptCount: 1,
+    progress: 10
+  });
+  const resolumeSource = await repository.getResolumeExportSource(resolumeExportJobId);
+  assert.equal(resolumeSource?.assetId, repairOutputAsset);
+  assert.equal(resolumeSource?.sourceAnalysisId, repairOutputAnalysis);
+  assert.equal(resolumeSource?.loopEvidence.algorithmVersion, "boundary-seam-window-gray-v3");
+
+  const resolumeRoot = `${userOne}/${projectThree}/exports/${resolumeExportId}/`;
+  const resolumeMediaPath = `${resolumeRoot}media/${"f".repeat(64)}.mov`;
+  const resolumeManifestPath = `${resolumeRoot}manifest.json`;
+  await sql.unsafe("insert into storage.objects (bucket_id, name) values ('project-assets', $1), ('project-assets', $2)", [
+    resolumeMediaPath,
+    resolumeManifestPath
+  ]);
+  await repository.completeResolumeExport({
+    exportId: resolumeExportId,
+    jobId: resolumeExportJobId,
+    ownerId: userOne,
+    packageStoragePath: resolumeRoot,
+    mediaStoragePath: resolumeMediaPath,
+    manifestStoragePath: resolumeManifestPath,
+    manifest: {
+      schemaVersion: "resolume-delivery-v1",
+      exportId: resolumeExportId,
+      projectId: projectThree,
+      jobId: resolumeExportJobId,
+      preset: "resolume",
+      deliveryState: "ready_for_manual_resolume_import",
+      source: {
+        assetId: repairOutputAsset,
+        sourceAnalysisId: repairOutputAnalysis,
+        contentSha256: repairOutputSha,
+        filename: `${repairOutputSha}.mp4`,
+        hasAlpha: false
+      },
+      media: {
+        filename: `${"f".repeat(64)}.mov`,
+        storagePath: resolumeMediaPath,
+        mimeType: "video/quicktime",
+        codec: "prores",
+        pixelFormat: "yuv444p12le",
+        hasAlpha: false,
+        durationSeconds: 8,
+        width: 1920,
+        height: 1080,
+        frameRate: 30
+      },
+      loopEvidence: {
+        algorithmVersion: "boundary-seam-window-gray-v3",
+        decision: "pass",
+        seamContinuityScore: 100,
+        brightnessSafetyScore: 94,
+        flickerSafetyScore: 100
+      },
+      operatorNotes: ["Fixture delivery"],
+      unresolvedAcceptance: ["Manual Resolume import remains required."]
+    }
+  });
+  const completedResolume = (await sql.unsafe(
+    "select status, storage_bucket, storage_path, manifest #>> '{media,storagePath}' as media_path from exports where id = $1",
+    [resolumeExportId]
+  )) as unknown as Array<{ status: string; storage_bucket: string; storage_path: string; media_path: string }>;
+  assert.deepEqual(completedResolume[0], {
+    status: "completed",
+    storage_bucket: "project-assets",
+    storage_path: resolumeRoot,
+    media_path: resolumeMediaPath
+  });
+  assert.equal((await repository.getJob(resolumeExportJobId))?.status, "completed");
+
   const reviewCounts = (await sql.unsafe(
     `
       select
@@ -722,19 +839,7 @@ try {
     `,
     [projectThree, reviewJobId]
   )) as unknown as Array<{ action_count: number; job_count: number; timeline_count: number }>;
-  assert.deepEqual(reviewCounts[0], { action_count: 1, job_count: 1, timeline_count: 1 });
-
-  await assert.rejects(
-    sql.begin(async (transaction) => {
-      await transaction.unsafe("set local role authenticated");
-      await transaction.unsafe("select set_config('request.jwt.claim.sub', $1, true)", [userOne]);
-      await transaction.unsafe(
-        "select * from apply_clip_review_action($1, $2, 'approve', '', 'web-review:approve:while-repairing')",
-        [projectThree, persistedClipId]
-      );
-    }),
-    /clip already has an active durable job/
-  );
+  assert.deepEqual(reviewCounts[0], { action_count: 2, job_count: 1, timeline_count: 1 });
 
   await assert.rejects(
     sql.begin(async (transaction) => {

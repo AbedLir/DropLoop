@@ -12,6 +12,13 @@ import {
   LocalLoopRepairProcessor
 } from "./output/local-loop-repair-processor";
 import { LOOP_REPAIR_POLICY_V1 } from "@droploop/media";
+import { PRORES_4444_EXPORT_POLICY_V1 } from "@droploop/media";
+import {
+  LOCAL_RESOLUME_EXPORT_MODEL,
+  LOCAL_RESOLUME_EXPORT_PROVIDER,
+  ResolumeExportError,
+  ResolumeExportProcessor
+} from "./output/resolume-export-processor";
 
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const leaseSeconds = Number(process.env.JOB_LEASE_SECONDS ?? 60);
@@ -79,6 +86,21 @@ try {
             errorCategory: "validation_failed",
             errorMessage: `Unsupported LOOP_REPAIR_ENGINE: ${selectedRepairEngine}`
           });
+        }
+      } else if (job.operation === "export" && (job.status === "queued" || job.status === "exporting")) {
+        const localExportJob = await controller.beginLocalResolumeExport(job.id, {
+          provider: LOCAL_RESOLUME_EXPORT_PROVIDER,
+          model: LOCAL_RESOLUME_EXPORT_MODEL,
+          providerJobId: `local-resolume-export:${job.id}:${LOCAL_RESOLUME_EXPORT_MODEL}`,
+          config: { ...PRORES_4444_EXPORT_POLICY_V1 }
+        });
+        try {
+          await new ResolumeExportProcessor(repository, new SupabaseOutputObjectStore()).process(localExportJob);
+        } catch (error) {
+          const failure = error instanceof ResolumeExportError
+            ? error
+            : new ResolumeExportError(error instanceof Error ? error.message : "Unknown local Resolume export failure.", true);
+          await controller.recordLocalResolumeExportFailure(job.id, failure.message, failure.retryable);
         }
       } else if (job.status === "submitting") {
         await controller.recoverInterruptedSubmission(job.id);

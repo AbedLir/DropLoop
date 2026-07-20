@@ -18,6 +18,7 @@ import type {
   ProviderJobSnapshot,
   ProviderSubmission
 } from "@droploop/schemas";
+import type { ResolumeDeliveryManifest } from "@droploop/schemas";
 
 export type GenerateVideoInput = {
   projectId: string;
@@ -120,7 +121,30 @@ export type RepairSourceAsset = ValidationAsset & {
   hasAlpha: boolean;
 };
 
+export type ResolumeExportSource = RepairSourceAsset & {
+  exportId: string;
+  sourceContentSha256: string;
+  loopEvidence: LoopAnalysisResult;
+};
+
+export type CompleteResolumeExportInput = {
+  exportId: string;
+  jobId: string;
+  ownerId: string;
+  packageStoragePath: string;
+  mediaStoragePath: string;
+  manifestStoragePath: string;
+  manifest: ResolumeDeliveryManifest;
+};
+
 export type BeginLocalRepairInput = {
+  provider: string;
+  model: string;
+  providerJobId: string;
+  config: Record<string, unknown>;
+};
+
+export type BeginLocalResolumeExportInput = {
   provider: string;
   model: string;
   providerJobId: string;
@@ -151,7 +175,9 @@ export interface DurableJobRepository {
   getProjectOwnerId(projectId: string): Promise<string | null>;
   registerProviderOutput(input: RegisterProviderOutputInput): Promise<RegisteredProviderOutput>;
   getRepairSource(jobId: string): Promise<RepairSourceAsset | null>;
+  getResolumeExportSource(jobId: string): Promise<ResolumeExportSource | null>;
   getValidationAsset(jobId: string): Promise<ValidationAsset | null>;
+  completeResolumeExport(input: CompleteResolumeExportInput): Promise<void>;
   registerLoopAnalysis(input: RegisterLoopAnalysisInput): Promise<StoredLoopAnalysis>;
   getLatestLoopAnalysis(jobId: string): Promise<StoredLoopAnalysis | null>;
   listJobTimeline(jobId: string, afterSequence?: number, limit?: number): Promise<JobTimelineEvent[]>;
@@ -382,6 +408,55 @@ export class DurableJobController {
     return generationJobSchema.parse(repairing);
   }
 
+  async beginLocalResolumeExport(jobId: string, input: BeginLocalResolumeExportInput): Promise<GenerationJob> {
+    const current = await this.requireJob(jobId);
+    if (current.operation !== "export" || (current.status !== "queued" && current.status !== "exporting")) {
+      throw new JobConflictError(`Job ${current.id} cannot start local Resolume export from ${current.status}.`);
+    }
+    const exporting = current.status === "queued"
+      ? await this.transition(current, "exporting", {
+          provider: input.provider,
+          providerModel: input.model,
+          providerJobId: input.providerJobId,
+          providerConfig: input.config,
+          attemptCount: current.attemptCount + 1,
+          progress: 10,
+          startedAt: current.startedAt ?? this.now().toISOString(),
+          errorCategory: null,
+          errorMessage: null
+        })
+      : current;
+
+    if (
+      exporting.provider !== input.provider ||
+      exporting.providerModel !== input.model ||
+      exporting.providerJobId !== input.providerJobId
+    ) {
+      throw new JobConflictError(`Job ${exporting.id} is already bound to a different Resolume export attempt.`);
+    }
+    const latest = await this.repository.getLatestAttempt(exporting.id);
+    if (!latest) {
+      await this.repository.createAttempt({
+        jobId: exporting.id,
+        attemptNumber: exporting.attemptCount,
+        provider: input.provider,
+        providerModel: input.model,
+        providerJobId: input.providerJobId,
+        status: "running",
+        costUsd: 0,
+        rawResponse: { localTransform: input.config },
+        startedAt: this.now().toISOString()
+      });
+    } else if (
+      latest.attemptNumber !== exporting.attemptCount ||
+      latest.providerJobId !== input.providerJobId ||
+      latest.provider !== input.provider
+    ) {
+      throw new JobConflictError(`Job ${exporting.id} has a conflicting latest Resolume export attempt.`);
+    }
+    return generationJobSchema.parse(exporting);
+  }
+
   async completeLocalRepair(jobId: string, assetId: string, materializationLatencyMs: number): Promise<GenerationJob> {
     const job = await this.requireJob(jobId);
     if (job.status !== "repairing") {
@@ -406,6 +481,34 @@ export class DurableJobController {
     }
     if (retryable) {
       return this.repository.updateJob(job.id, ["repairing"], {
+        errorCategory: "internal",
+        errorMessage: message
+      });
+    }
+    if (job.providerJobId) {
+      const attempt = await this.repository.getLatestAttempt(job.id);
+      if (attempt?.providerJobId === job.providerJobId && attempt.status === "running") {
+        await this.repository.updateAttempt(job.providerJobId, {
+          status: "failed",
+          errorCategory: "validation_failed",
+          errorMessage: message,
+          finishedAt: this.now().toISOString()
+        });
+      }
+    }
+    return this.transition(job, "failed", {
+      errorCategory: "validation_failed",
+      errorMessage: message
+    });
+  }
+
+  async recordLocalResolumeExportFailure(jobId: string, message: string, retryable: boolean): Promise<GenerationJob> {
+    const job = await this.requireJob(jobId);
+    if (job.status !== "exporting") {
+      throw new JobConflictError(`Job ${job.id} cannot record a local Resolume export failure from ${job.status}.`);
+    }
+    if (retryable) {
+      return this.repository.updateJob(job.id, ["exporting"], {
         errorCategory: "internal",
         errorMessage: message
       });

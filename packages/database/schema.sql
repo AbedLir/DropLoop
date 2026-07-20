@@ -1,3 +1,6 @@
+-- Legacy initialization snapshot retained for reference.
+-- Active environments must run the ordered files in migrations/ through `pnpm --filter @droploop/database migrate`.
+
 create extension if not exists "uuid-ossp";
 
 create table if not exists users_profile (

@@ -10,6 +10,7 @@ coverage/
 *.tsbuildinfo
 out/
 exported-packs/
+apps/web/public/acceptance/
 .codegraph/
 _AI/
 .DS_Store

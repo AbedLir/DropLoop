@@ -16,6 +16,7 @@ type ReviewPayload = {
     id: string;
     clipId: string;
     role: string;
+    previewUrl: string | null;
     loopScore: number;
     qualityScore: number;
   }>;
@@ -56,20 +57,36 @@ export default function ReviewPage() {
   }, [params.projectId]);
 
   async function applyAction(clipId: string, action: "approve" | "reject" | "repair" | "regenerate") {
-    const response = await fetch(`/api/projects/${params.projectId}/review`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clipId, action })
-    });
-    const result = (await response.json()) as { clipId: string; status: string; action: string; reason: string };
+    setError(null);
 
-    setReviews((current) =>
-      current.map((review) =>
-        review.clipId === result.clipId
-          ? { ...review, status: result.status, recommendedAction: result.action, reason: result.reason }
-          : review
-      )
-    );
+    try {
+      const response = await fetch(`/api/projects/${params.projectId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clipId, action, idempotencyKey: crypto.randomUUID() })
+      });
+      const result = (await response.json()) as {
+        clipId?: string;
+        status?: string;
+        action?: string;
+        reason?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !result.clipId || !result.status || !result.action || !result.reason) {
+        throw new Error(result.error ?? `Review action failed with HTTP ${response.status}`);
+      }
+
+      setReviews((current) =>
+        current.map((review) =>
+          review.clipId === result.clipId
+            ? { ...review, status: result.status!, recommendedAction: result.action!, reason: result.reason! }
+            : review
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown review action error");
+    }
   }
 
   return (
@@ -87,6 +104,15 @@ export default function ReviewPage() {
               <p className="muted">
                 {clip?.role ?? "clip"} · Loop {clip?.loopScore ?? 0} · Quality {clip?.qualityScore ?? 0}
               </p>
+              {clip?.previewUrl ? (
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  src={clip.previewUrl}
+                  style={{ width: "100%", borderRadius: 12, background: "#080808" }}
+                />
+              ) : null}
               <p>{review.reason}</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                 {(["approve", "reject", "repair", "regenerate"] as const).map((action) => (

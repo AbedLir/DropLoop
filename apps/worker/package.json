@@ -10,12 +10,16 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
+    "prepare:loop-doctor-preview": "node --import tsx src/tools/prepare-loop-doctor-preview.ts",
     "test": "tsc --noEmit"
   },
   "dependencies": {
+    "@droploop/database": "workspace:*",
+    "@droploop/media": "workspace:*",
     "@droploop/pipeline": "workspace:*",
     "@droploop/prompts": "workspace:*",
     "@droploop/schemas": "workspace:*",
+    "@supabase/supabase-js": "^2.109.0",
     "tsx": "^4.19.2"
   },
   "devDependencies": {

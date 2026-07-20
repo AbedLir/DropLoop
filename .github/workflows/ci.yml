@@ -18,6 +18,20 @@ jobs:
     name: Typecheck, test, and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: droploop
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d droploop"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -38,11 +52,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install and verify FFmpeg runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          ffmpeg -version
+          ffprobe -version
+
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Run unit and integration tests
         run: pnpm test:unit
+
+      - name: Verify database migrations and RLS
+        run: pnpm --filter @droploop/database test:integration
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/droploop
 
       - name: Build production application
         run: pnpm build

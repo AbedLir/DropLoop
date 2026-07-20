@@ -19,6 +19,49 @@ export const screenFormatSchema = z.enum(["16:9", "21:9", "32:9", "9:16", "1:1",
 export const clipRoleSchema = z.enum(["ambient", "groove", "build", "drop", "transition", "logo_identity"]);
 export const jobStatusSchema = z.enum(["queued", "running", "completed", "failed"]);
 
+export const durableJobStatusSchema = z.enum([
+  "queued",
+  "submitting",
+  "provider_running",
+  "downloading",
+  "validating",
+  "awaiting_review",
+  "repairing",
+  "exporting",
+  "completed",
+  "failed",
+  "cancelled"
+]);
+
+export const jobOperationSchema = z.enum(["generate", "repair", "export"]);
+
+export const orchestrationModeSchema = z.enum(["solo", "pipeline", "split"]);
+
+export const jobTimelineEventTypeSchema = z.enum([
+  "job_reserved",
+  "dependency_added",
+  "status_changed",
+  "progress_changed",
+  "lease_claimed",
+  "lease_released",
+  "attempt_started",
+  "attempt_updated"
+]);
+
+export const jobTimelineActorTypeSchema = z.enum(["system", "worker", "provider", "user"]);
+
+export const jobErrorCategorySchema = z.enum([
+  "provider_rejected",
+  "provider_timeout",
+  "provider_rate_limited",
+  "download_failed",
+  "validation_failed",
+  "cancelled",
+  "internal"
+]);
+
+export const providerJobStatusSchema = z.enum(["queued", "running", "completed", "failed", "cancelled"]);
+
 export const pipelineStageSchema = z.enum([
   "project_brief",
   "asset_intelligence",
@@ -336,6 +379,99 @@ export const clipReviewSchema = z.object({
   reason: z.string()
 });
 
+export const generationJobSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  workflowId: z.string().min(1),
+  orchestrationMode: orchestrationModeSchema,
+  operation: jobOperationSchema,
+  idempotencyKey: z.string().min(1),
+  status: durableJobStatusSchema,
+  progress: z.number().int().min(0).max(100),
+  input: z.record(z.unknown()),
+  provider: z.string().min(1).optional(),
+  providerJobId: z.string().min(1).optional(),
+  providerModel: z.string().min(1).optional(),
+  providerConfig: z.record(z.unknown()).optional(),
+  attemptCount: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().positive(),
+  costUsd: z.number().nonnegative(),
+  sourceAssetId: z.string().min(1).optional(),
+  sourceAnalysisId: z.string().min(1).optional(),
+  outputAssetId: z.string().min(1).optional(),
+  providerLatencyMs: z.number().int().nonnegative().optional(),
+  downloadLatencyMs: z.number().int().nonnegative().optional(),
+  errorCategory: jobErrorCategorySchema.optional(),
+  errorMessage: z.string().optional(),
+  leasedBy: z.string().optional(),
+  leaseExpiresAt: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  startedAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  cancelledAt: z.string().optional()
+});
+
+export const jobAttemptSchema = z.object({
+  id: z.string().min(1),
+  jobId: z.string().min(1),
+  attemptNumber: z.number().int().positive(),
+  provider: z.string().min(1),
+  providerModel: z.string().min(1).optional(),
+  providerJobId: z.string().min(1).optional(),
+  status: providerJobStatusSchema,
+  costUsd: z.number().nonnegative(),
+  result: z
+    .object({
+      previewUrl: z.string().min(1),
+      thumbnailUrl: z.string().min(1).optional()
+    })
+    .optional(),
+  latencyMs: z.number().int().nonnegative().optional(),
+  rawResponse: z.unknown().optional(),
+  errorCategory: jobErrorCategorySchema.optional(),
+  errorMessage: z.string().optional(),
+  startedAt: z.string(),
+  finishedAt: z.string().optional()
+});
+
+export const jobTimelineEventSchema = z.object({
+  id: z.string().min(1),
+  sequence: z.number().int().positive(),
+  jobId: z.string().min(1),
+  eventType: jobTimelineEventTypeSchema,
+  actorType: jobTimelineActorTypeSchema,
+  actorId: z.string().min(1).optional(),
+  fromStatus: durableJobStatusSchema.optional(),
+  toStatus: durableJobStatusSchema.optional(),
+  payload: z.record(z.unknown()),
+  createdAt: z.string()
+});
+
+export const providerSubmissionSchema = z.object({
+  providerJobId: z.string().min(1),
+  status: providerJobStatusSchema,
+  submittedAt: z.string(),
+  rawResponse: z.unknown().optional()
+});
+
+export const providerResultSchema = z.object({
+  previewUrl: z.string().min(1),
+  thumbnailUrl: z.string().min(1).optional()
+});
+
+export const providerJobSnapshotSchema = z.object({
+  providerJobId: z.string().min(1),
+  status: providerJobStatusSchema,
+  progress: z.number().int().min(0).max(100),
+  costUsd: z.number().nonnegative().optional(),
+  result: providerResultSchema.optional(),
+  errorCategory: jobErrorCategorySchema.optional(),
+  errorMessage: z.string().optional(),
+  rawResponse: z.unknown().optional(),
+  updatedAt: z.string()
+});
+
 export const exportPresetDetailSchema = z.object({
   preset: exportManifestSchema.shape.preset,
   label: z.string(),
@@ -344,6 +480,43 @@ export const exportPresetDetailSchema = z.object({
   playback: playbackMetadataSchema,
   handoffNotes: z.array(z.string()),
   notes: z.array(z.string())
+});
+
+export const resolumeDeliveryManifestSchema = z.object({
+  schemaVersion: z.literal("resolume-delivery-v1"),
+  exportId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  jobId: z.string().uuid(),
+  preset: z.literal("resolume"),
+  deliveryState: z.literal("ready_for_manual_resolume_import"),
+  source: z.object({
+    assetId: z.string().uuid(),
+    sourceAnalysisId: z.string().uuid(),
+    contentSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    filename: z.string().min(1),
+    hasAlpha: z.boolean()
+  }),
+  media: z.object({
+    filename: z.string().regex(/\.mov$/i),
+    storagePath: z.string().min(1),
+    mimeType: z.literal("video/quicktime"),
+    codec: z.literal("prores"),
+    pixelFormat: z.string().min(1),
+    hasAlpha: z.boolean(),
+    durationSeconds: z.number().positive(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    frameRate: z.number().positive()
+  }),
+  loopEvidence: z.object({
+    algorithmVersion: z.literal("boundary-seam-window-gray-v3"),
+    decision: z.literal("pass"),
+    seamContinuityScore: z.number().int().min(0).max(100),
+    brightnessSafetyScore: z.number().int().min(0).max(100),
+    flickerSafetyScore: z.number().int().min(0).max(100)
+  }),
+  operatorNotes: z.array(z.string()).min(1),
+  unresolvedAcceptance: z.array(z.string()).min(1)
 });
 
 export type Project = z.infer<typeof projectSchema>;
@@ -378,3 +551,17 @@ export type SafetyReport = z.infer<typeof safetyReportSchema>;
 export type ReviewAction = z.infer<typeof reviewActionSchema>;
 export type ClipReview = z.infer<typeof clipReviewSchema>;
 export type ExportPresetDetail = z.infer<typeof exportPresetDetailSchema>;
+export type ResolumeDeliveryManifest = z.infer<typeof resolumeDeliveryManifestSchema>;
+export type DurableJobStatus = z.infer<typeof durableJobStatusSchema>;
+export type JobOperation = z.infer<typeof jobOperationSchema>;
+export type OrchestrationMode = z.infer<typeof orchestrationModeSchema>;
+export type JobErrorCategory = z.infer<typeof jobErrorCategorySchema>;
+export type ProviderJobStatus = z.infer<typeof providerJobStatusSchema>;
+export type GenerationJob = z.infer<typeof generationJobSchema>;
+export type JobAttempt = z.infer<typeof jobAttemptSchema>;
+export type JobTimelineEventType = z.infer<typeof jobTimelineEventTypeSchema>;
+export type JobTimelineActorType = z.infer<typeof jobTimelineActorTypeSchema>;
+export type JobTimelineEvent = z.infer<typeof jobTimelineEventSchema>;
+export type ProviderSubmission = z.infer<typeof providerSubmissionSchema>;
+export type ProviderResult = z.infer<typeof providerResultSchema>;
+export type ProviderJobSnapshot = z.infer<typeof providerJobSnapshotSchema>;

@@ -15,11 +15,23 @@ const presetDetails: Record<ExportManifest["preset"], ExportPresetDetail> = {
   resolume: {
     preset: "resolume",
     label: "Resolume Arena",
-    folders: ["01_Ambient", "02_Groove", "03_Build", "04_Drop", "08_Thumbnails", "09_Resolume"],
-    requiredFiles: ["manifest.json", "safety-report.json", "visual-dna.json", "energy-map.json"],
-    playback: { ...defaultPlayback, codecTarget: "hap", alphaSupport: "straight_alpha" },
-    handoffNotes: ["Group loops by visual role before importing into decks.", "Use BPM sync notes from `energy-map.json`."],
-    notes: ["Clips are grouped by VJ deck role for fast Resolume import."]
+    folders: ["media", "reports", "thumbnails", "resolume"],
+    requiredFiles: ["manifest.json", "safety-report.json", "visual-dna.json", "energy-map.json", "media/*.mov"],
+    playback: {
+      ...defaultPlayback,
+      codecTarget: "prores",
+      alphaSupport: "unknown",
+      operatorNotes: [
+        "ProRes 4444 is created only by the durable Resolume export job from a human-approved clip.",
+        "The delivery manifest records alpha only after decoding verifies the source and output.",
+        "DXV3 is not implied by this package."
+      ]
+    },
+    handoffNotes: [
+      "Import the delivered MOV directly into Resolume and retain manifest.json beside the media.",
+      "Run the separate sustained playback acceptance before show use."
+    ],
+    notes: ["The first production slice exports one exact approved asset with its v3 seam evidence; multi-clip pack assembly remains a follow-up capability."]
   },
   madmapper: {
     preset: "madmapper",

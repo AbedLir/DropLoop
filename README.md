@@ -9,7 +9,7 @@ It turns tracks, moods, references, and show constraints into stage-ready VJ pac
 - Build the full structured workflow before real video generation.
 - Validate every AI pipeline output with shared Zod schemas.
 - Keep video generation behind a provider adapter.
-- Use `MockVideoProvider` first; keep `SeedanceProvider` as an isolated stub.
+- Keep `MockVideoProvider` as the no-spend default; opt into Seedance 2.0 or Kling explicitly.
 - Route long-running work through worker-style job handlers.
 
 ## Local Development
@@ -29,11 +29,47 @@ Run the full local verification gate with:
 pnpm verify
 ```
 
+Prepare a zero-cost, real-media Loop Doctor acceptance fixture and open the public preview page:
+
+```powershell
+pnpm preview:loop-doctor
+```
+
+Then visit `http://localhost:3000/examples/loop-doctor`. The generated MP4 and evidence files stay local and are
+gitignored. This preview runs FFmpeg and the same decoded analysis/repair packages used by the Worker; it never calls
+Seedance or Kling.
+
+Apply the Supabase/Postgres control-plane migrations with a server-only `DATABASE_URL`:
+
+```powershell
+pnpm --filter @droploop/database migrate
+```
+
+Authenticated Web routes use Supabase SSR cookies and owner-only RLS. Configure the public project URL and publishable key before opening `/dashboard`:
+
+```powershell
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+The publishable key is safe to expose to the browser because authorization is enforced by Auth and RLS. Never expose `SUPABASE_SERVICE_ROLE_KEY` or `DATABASE_URL` through a `NEXT_PUBLIC_` variable.
+
+Real source uploads are private, limited to 64 MiB per file, and inspected from bytes before registration. Source audio BPM analysis decodes a bounded PCM window. The Web runtime must have `ffprobe` and `ffmpeg` on `PATH`, or configure their absolute executable paths:
+
+```powershell
+FFPROBE_PATH=ffprobe
+FFMPEG_PATH=ffmpeg
+```
+
+Production video submission is disabled by default. Set `VIDEO_PROVIDER=seedance` with an Ark API key, or
+`VIDEO_PROVIDER=kling` with Kling access and secret keys. Once a job is submitted, the worker preserves the
+provider recorded on that job even if the deployment default changes. See `.env.example` for model IDs and base URLs.
+
 ## Repository Layout
 
 ```text
 apps/web        Next.js App Router dashboard and API shell
-apps/worker     Mock async pipeline and video provider adapter
+apps/worker     Durable worker and mock/Seedance/Kling provider adapters
 packages/schemas Shared Zod schemas and TypeScript types
 packages/prompts Structured prompt builders
 packages/ui      Shared design tokens and lightweight UI primitives

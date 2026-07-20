@@ -42,6 +42,9 @@ A VJ can submit music context and visual references, receive multiple style-cons
 ## Gate 4: professional export
 
 - ProRes 4444 with alpha is a supported acceptance path.
+- A first delivery may cover one exact human-approved clip, but must bind the private MOV and manifest to its immutable asset hash and current loop evidence.
+- Alpha must be decoded and verified in both source and delivery output; an opaque source must not be labeled as Alpha-capable.
+- Only the project owner may retrieve a completed delivery through a short-lived private URL; queued, failed, or lineage-inconsistent exports must not expose media.
 - DXV3 licensing and encoder integration have a recorded outcome; HAP or ProRes may be an interim path when documented.
 - The package contains approved media, thumbnails, manifest, BPM/beat notes, safety report, and fallback/operator notes.
 - Files import into Resolume without manual transcoding.

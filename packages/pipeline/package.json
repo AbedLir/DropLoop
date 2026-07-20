@@ -12,6 +12,7 @@
     "test": "tsc --noEmit"
   },
   "dependencies": {
+    "@droploop/media": "workspace:*",
     "@droploop/prompts": "workspace:*",
     "@droploop/schemas": "workspace:*",
     "zod": "^3.24.1"

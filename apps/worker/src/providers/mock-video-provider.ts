@@ -1,33 +1,83 @@
-import { generatedClipSchema } from "@droploop/schemas";
-import type { GeneratedClip } from "@droploop/schemas";
+import { providerJobSnapshotSchema, providerSubmissionSchema } from "@droploop/schemas";
+import type { ProviderJobSnapshot, ProviderSubmission } from "@droploop/schemas";
 import type { GenerateVideoInput, RepairVideoInput, VideoProvider } from "./video-provider";
 
+type MockJob = {
+  id: string;
+  clipId: string;
+  status: "queued" | "cancelled";
+  submittedAt: string;
+};
+
 export class MockVideoProvider implements VideoProvider {
-  async generateVideo(input: GenerateVideoInput): Promise<GeneratedClip> {
-    return generatedClipSchema.parse({
-      id: `mock-${input.projectId}-${input.prompt.clipId}`,
-      clipId: input.prompt.clipId,
-      role: input.prompt.role,
-      status: "generated",
-      previewUrl: `/mock/clips/${input.prompt.clipId}.mp4`,
-      thumbnailUrl: `/mock/thumbnails/${input.prompt.clipId}.jpg`,
-      durationSeconds: input.prompt.durationSeconds,
-      loopScore: Math.min(95, 72 + Math.round(input.prompt.energy / 5)),
-      qualityScore: Math.min(96, 74 + Math.round(input.prompt.energy / 6))
+  readonly name = "mock";
+  readonly model = "deterministic-contract-fixture";
+  private readonly jobs = new Map<string, MockJob>();
+
+  async submitGeneration(input: GenerateVideoInput): Promise<ProviderSubmission> {
+    return this.submit(input.projectId, input.idempotencyKey, input.prompt.clipId);
+  }
+
+  async submitRepair(input: RepairVideoInput): Promise<ProviderSubmission> {
+    return this.submit(input.projectId, input.idempotencyKey, `${input.plannedClipId}-repair`);
+  }
+
+  async getJob(providerJobId: string): Promise<ProviderJobSnapshot> {
+    const job = this.jobs.get(providerJobId);
+    if (!job) {
+      throw new Error(`Unknown mock provider job ${providerJobId}.`);
+    }
+
+    if (job.status === "cancelled") {
+      return providerJobSnapshotSchema.parse({
+        providerJobId,
+        status: "cancelled",
+        progress: 0,
+        errorCategory: "cancelled",
+        errorMessage: "Mock provider job was cancelled.",
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    return providerJobSnapshotSchema.parse({
+      providerJobId,
+      status: "completed",
+      progress: 100,
+      costUsd: 0,
+      result: {
+        previewUrl: `/mock/clips/${job.clipId}.mp4`,
+        thumbnailUrl: `/mock/thumbnails/${job.clipId}.jpg`
+      },
+      rawResponse: { fixture: true },
+      updatedAt: new Date().toISOString()
     });
   }
 
-  async repairVideo(input: RepairVideoInput): Promise<GeneratedClip> {
-    return generatedClipSchema.parse({
-      ...input.clip,
-      id: `${input.clip.id}-repaired`,
-      status: "generated",
-      loopScore: Math.min(100, input.clip.loopScore + 8),
-      qualityScore: Math.min(100, input.clip.qualityScore + 6)
-    });
+  async cancelJob(providerJobId: string): Promise<void> {
+    const job = this.jobs.get(providerJobId);
+    if (!job) {
+      throw new Error(`Unknown mock provider job ${providerJobId}.`);
+    }
+    job.status = "cancelled";
   }
 
-  async getJobStatus(): Promise<"completed"> {
-    return "completed";
+  private async submit(projectId: string, idempotencyKey: string, clipId: string): Promise<ProviderSubmission> {
+    const providerJobId = `mock:${projectId}:${idempotencyKey}`;
+    const existing = this.jobs.get(providerJobId);
+    const submittedAt = existing?.submittedAt ?? new Date().toISOString();
+
+    this.jobs.set(providerJobId, {
+      id: providerJobId,
+      clipId,
+      status: existing?.status ?? "queued",
+      submittedAt
+    });
+
+    return providerSubmissionSchema.parse({
+      providerJobId,
+      status: "queued",
+      submittedAt,
+      rawResponse: { fixture: true }
+    });
   }
 }

@@ -41,12 +41,42 @@ import { z } from "zod";
 import { classifyVjAssets } from "./asset-classifier";
 import { buildCanvasModel } from "./canvas-model";
 export { buildExportPresetDetail } from "./export-manifest";
+export { buildResolumeDeliveryManifest } from "./resolume-delivery";
+export type { ResolumeDeliveryManifestInput } from "./resolume-delivery";
 import { evaluateClipGate } from "./quality-gates";
 export { evaluateClipGate } from "./quality-gates";
 import { buildVjRecipeCatalog } from "./recipes";
 export { classifyVjAssets } from "./asset-classifier";
 export { buildCanvasModel } from "./canvas-model";
 export { buildVjRecipeCatalog } from "./recipes";
+export {
+  DurableJobController,
+  InvalidJobTransitionError,
+  JobConflictError,
+  ProviderError,
+  assertJobTransition,
+  assertReserveJobTopology,
+  canTransitionJob
+} from "./control-plane";
+export type {
+  CreateAttemptInput,
+  BeginLocalResolumeExportInput,
+  CompleteResolumeExportInput,
+  BeginLocalRepairInput,
+  DurableJobRepository,
+  GenerateVideoInput,
+  JobChanges,
+  RegisterLoopAnalysisInput,
+  RegisteredProviderOutput,
+  RegisterProviderOutputInput,
+  RepairVideoInput,
+  RepairSourceAsset,
+  ResolumeExportSource,
+  ReserveJobInput,
+  StoredLoopAnalysis,
+  ValidationAsset,
+  VideoProvider
+} from "./control-plane";
 
 export const projectPipelineInputSchema = z.object({
   projectId: z.string().min(1),

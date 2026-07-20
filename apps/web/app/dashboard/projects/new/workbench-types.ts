@@ -93,6 +93,26 @@ export type PipelineResponse = {
       folders: string[];
     };
   };
+  assets?: UploadedAsset[];
+};
+
+export type UploadedAsset = {
+  id: string;
+  type: "audio" | "image" | "video";
+  role: "source_audio" | "mood_reference";
+  filename: string;
+  size_bytes: number;
+  duration_seconds: number | null;
+  width: number | null;
+  height: number | null;
+  frame_rate: number | null;
+  codec: string;
+  pixel_format: string | null;
+  has_alpha: boolean | null;
+  bpm_analyzed: number | null;
+  bpm_confidence: number | null;
+  bpm_analysis_version: string | null;
+  beat_grid_assumption: string | null;
 };
 
 export type AgentMessage = {

@@ -121,6 +121,30 @@ export function AgentSidebar({ result, error, isSubmitting, onSubmit }: AgentSid
         <input name="showType" required defaultValue="club LED wall" />
         <textarea name="desiredMood" required rows={3} defaultValue="industrial strobes, steel tunnels, red haze" />
         <textarea name="references" rows={3} defaultValue={"red haze moodboard\nwide LED wall\nDJ booth strip"} />
+        <label className="uploadField">
+          <span>Source audio · one file</span>
+          <input
+            accept="audio/flac,audio/mp4,audio/mpeg,audio/wav,audio/x-wav"
+            name="audioFile"
+            required
+            type="file"
+          />
+        </label>
+        <label className="uploadField">
+          <span>Visual references · one or more</span>
+          <input
+            accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+            multiple
+            name="referenceFiles"
+            required
+            type="file"
+          />
+        </label>
+        {result?.assets?.length ? (
+          <p className="successText">
+            {result.assets.length} private source assets uploaded and inspected from real bytes.
+          </p>
+        ) : null}
         {error ? <p className="errorText">{error}</p> : null}
         <button className="button primaryButton" disabled={isSubmitting} type="submit">
           {isSubmitting ? "Agent is building..." : "Generate VJ pack"}

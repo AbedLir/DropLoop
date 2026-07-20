@@ -19,8 +19,8 @@ describe("local Loop Doctor media transform", () => {
     const sourcePath = join(directory, "source.mp4");
     await runFfmpeg([
       "-v", "error",
-      "-f", "lavfi", "-i", "color=c=white:s=320x180:r=30:d=1",
-      "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "color=c=#a0a0a0:s=320x180:r=30:d=1",
+      "-f", "lavfi", "-i", "color=c=#606060:s=320x180:r=30:d=1",
       "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
       "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p", sourcePath
     ]);
@@ -55,9 +55,13 @@ describe("local Loop Doctor media transform", () => {
     );
 
     expect(repaired.policy).toEqual(LOOP_REPAIR_POLICY_V1);
-    expect(before).toMatchObject({ decision: "repair_required", boundaryMaePercent: 100 });
+    expect(before.decision).toBe("repair_required");
+    expect(before.boundaryMaePercent).toBeGreaterThan(20);
+    expect(after.reasons).toEqual([]);
     expect(after.decision).toBe("pass");
     expect(after.boundaryMaePercent).toBeLessThan(before.boundaryMaePercent);
+    expect(after.blackFrameCount).toBe(0);
+    expect(after.flashReversalCount).toBe(0);
     expect(repairedProbe.durationSeconds).toBeCloseTo(sourceProbe.durationSeconds as number, 1);
     expect(repairedProbe).toMatchObject({ videoCodec: "h264", pixelFormat: "yuv420p", hasAlpha: false });
   }, 30_000);

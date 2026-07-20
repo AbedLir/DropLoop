@@ -428,6 +428,293 @@ textarea {
   color: #39d98a;
 }
 
+.loopDoctorPage {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 24px clamp(18px, 4vw, 64px) 80px;
+}
+
+.loopDoctorNav,
+.loopDoctorHero,
+.loopDoctorToolbar,
+.loopDoctorVideoHeader,
+.loopDoctorEvidence,
+.loopDoctorAcceptance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.loopDoctorNav {
+  margin-bottom: 52px;
+}
+
+.loopDoctorBrand {
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.loopDoctorHero {
+  align-items: flex-end;
+  margin-bottom: 28px;
+}
+
+.loopDoctorHero > div:first-child {
+  max-width: 850px;
+}
+
+.loopDoctorHero h1 {
+  max-width: 800px;
+  margin: 12px 0;
+  font-size: clamp(38px, 6vw, 76px);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+}
+
+.loopDoctorHero p {
+  max-width: 740px;
+  color: #aeb7cb;
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.loopDoctorEyebrow {
+  color: #ff62aa;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.loopDoctorDecision {
+  min-width: 260px;
+  border: 1px solid #343948;
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(255, 45, 141, 0.12), rgba(47, 140, 255, 0.08));
+  padding: 18px;
+}
+
+.loopDoctorDecision span,
+.loopDoctorDecision small {
+  display: block;
+  color: #8b93a7;
+}
+
+.loopDoctorDecision strong {
+  display: block;
+  margin: 8px 0;
+  font-size: 18px;
+}
+
+.loopDoctorToolbar {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  border-block: 1px solid #252833;
+  margin-bottom: 22px;
+  padding: 14px 0;
+}
+
+.loopDoctorCompare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.loopDoctorVideoCard {
+  overflow: hidden;
+  border: 1px solid #303544;
+  border-radius: 16px;
+  background: rgba(13, 14, 20, 0.94);
+}
+
+.loopDoctorVideoHeader {
+  padding: 18px;
+}
+
+.loopDoctorVideoHeader h2,
+.loopDoctorEvidence h2,
+.loopDoctorAcceptance h2 {
+  margin: 6px 0 0;
+}
+
+.loopDoctorVideoCard video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #020204;
+  object-fit: cover;
+}
+
+.statusDanger,
+.statusWarning {
+  background: #351820;
+  color: #ff7a8a;
+}
+
+.statusWarning {
+  background: #392d12;
+  color: #ffc857;
+}
+
+.loopDoctorMiniMetrics,
+.loopDoctorEvidenceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: #252833;
+}
+
+.loopDoctorMiniMetrics > div,
+.loopDoctorEvidenceGrid > div {
+  display: grid;
+  gap: 5px;
+  background: #111217;
+  padding: 15px 18px;
+}
+
+.loopDoctorMiniMetrics span,
+.loopDoctorEvidenceGrid span {
+  color: #8b93a7;
+  font-size: 12px;
+}
+
+.loopDoctorMiniMetrics strong {
+  font-size: 24px;
+}
+
+.loopDoctorReasons,
+.loopDoctorVideoCard > .successText {
+  min-height: 74px;
+  margin: 0;
+  padding: 18px 34px;
+  color: #ff9aaa;
+  line-height: 1.5;
+}
+
+.loopDoctorVideoCard > .successText {
+  padding-inline: 18px;
+  color: #39d98a;
+}
+
+.loopDoctorEvidence,
+.loopDoctorAcceptance {
+  align-items: flex-start;
+  margin-top: 18px;
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.loopDoctorEvidence > div:first-child,
+.loopDoctorAcceptance > div:first-child {
+  min-width: 220px;
+}
+
+.loopDoctorEvidenceGrid {
+  flex: 1;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  border: 1px solid #252833;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.loopDoctorEvidenceGrid strong {
+  font-size: 18px;
+}
+
+.loopDoctorEvidenceGrid small {
+  color: #ff62aa;
+}
+
+.loopDoctorEvidence details {
+  width: 100%;
+  max-width: 340px;
+}
+
+.loopDoctorEvidence summary {
+  cursor: pointer;
+  color: #cbd3e6;
+}
+
+.loopDoctorLineage {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.loopDoctorLineage div {
+  display: grid;
+  gap: 4px;
+}
+
+.loopDoctorLineage dt {
+  color: #8b93a7;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.loopDoctorLineage dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.loopDoctorChecklist {
+  display: grid;
+  flex: 1;
+  gap: 10px;
+}
+
+.loopDoctorChecklist label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #303544;
+  border-radius: 10px;
+  padding: 13px;
+  cursor: pointer;
+}
+
+.loopDoctorChecklist input {
+  width: 18px;
+  height: 18px;
+  accent-color: #39d98a;
+}
+
+.loopDoctorHumanDecision {
+  min-width: 210px;
+  border: 1px solid #49412d;
+  border-radius: 10px;
+  background: #211d14;
+  color: #ffc857;
+  padding: 16px;
+  text-align: center;
+  font-weight: 800;
+}
+
+.loopDoctorHumanDecision.accepted {
+  border-color: #24543d;
+  background: #13251c;
+  color: #39d98a;
+}
+
+.loopDoctorCaveat {
+  margin: 18px 0 0;
+  color: #737c91;
+  font-size: 12px;
+  text-align: center;
+}
+
+.loopDoctorMissing {
+  max-width: 760px;
+  margin: 15vh auto;
+  border-radius: 16px;
+}
+
+.loopDoctorMissing code {
+  color: #ff9dca;
+}
+
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: 1fr;
@@ -436,6 +723,37 @@ textarea {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid #252833;
+  }
+
+  .loopDoctorPage {
+    padding-inline: 14px;
+  }
+
+  .loopDoctorNav {
+    margin-bottom: 34px;
+  }
+
+  .loopDoctorHero,
+  .loopDoctorEvidence,
+  .loopDoctorAcceptance {
+    display: grid;
+  }
+
+  .loopDoctorDecision,
+  .loopDoctorHumanDecision {
+    width: 100%;
+  }
+
+  .loopDoctorCompare {
+    grid-template-columns: 1fr;
+  }
+
+  .loopDoctorEvidenceGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .loopDoctorEvidence details {
+    max-width: none;
   }
 }
 

@@ -4,12 +4,20 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 export {
+  CURRENT_LOOP_ANALYSIS_POLICY,
   LOOP_ANALYSIS_POLICY_V1,
+  LOOP_ANALYSIS_POLICY_V2,
   LoopAnalysisError,
   analyzeVideoLoopBuffer,
-  evaluateLoopBoundary
+  evaluateLoopBoundary,
+  evaluateLoopSafety
 } from "./loop-analysis";
-export type { LoopAnalysisPolicy, LoopAnalysisResult } from "./loop-analysis";
+export type {
+  LoopAnalysisPolicy,
+  LoopAnalysisResult,
+  LoopSafetyAnalysisResult,
+  LoopSafetyPolicy
+} from "./loop-analysis";
 export {
   LOOP_REPAIR_POLICY_V1,
   LoopRepairError,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { LOOP_ANALYSIS_POLICY_V1, analyzeVideoLoopBuffer } from "@droploop/media";
+import { CURRENT_LOOP_ANALYSIS_POLICY, analyzeVideoLoopBuffer } from "@droploop/media";
 import type { LoopAnalysisResult } from "@droploop/media";
 import type { DurableJobRepository, StoredLoopAnalysis } from "@droploop/pipeline";
 import type { GenerationJob } from "@droploop/schemas";
@@ -34,7 +34,7 @@ export class LoopAnalysisProcessor {
       throw new LoopValidationError(`Job ${job.id} is not ready for loop analysis.`, false);
     }
     const existing = await this.repository.getLatestLoopAnalysis(job.id);
-    if (existing && existing.result.algorithmVersion === LOOP_ANALYSIS_POLICY_V1.algorithmVersion) {
+    if (existing && existing.result.algorithmVersion === CURRENT_LOOP_ANALYSIS_POLICY.algorithmVersion) {
       if (existing.assetId !== job.outputAssetId) {
         throw new LoopValidationError(`Job ${job.id} has loop evidence for a different output asset.`, false);
       }
@@ -56,7 +56,13 @@ export class LoopAnalysisProcessor {
     try {
       result = await this.analyzer(bytes, asset.filename, asset.durationSeconds, asset.frameRate);
     } catch (error) {
-      throw validationError("Unable to analyze decoded loop boundary", error, false);
+      throw validationError("Unable to analyze decoded loop and temporal safety", error, false);
+    }
+    if (result.algorithmVersion !== CURRENT_LOOP_ANALYSIS_POLICY.algorithmVersion) {
+      throw new LoopValidationError(
+        `Loop analyzer returned ${result.algorithmVersion}; expected ${CURRENT_LOOP_ANALYSIS_POLICY.algorithmVersion}.`,
+        false
+      );
     }
 
     try {

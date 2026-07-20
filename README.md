@@ -29,6 +29,16 @@ Run the full local verification gate with:
 pnpm verify
 ```
 
+Prepare a zero-cost, real-media Loop Doctor acceptance fixture and open the public preview page:
+
+```powershell
+pnpm preview:loop-doctor
+```
+
+Then visit `http://localhost:3000/examples/loop-doctor`. The generated MP4 and evidence files stay local and are
+gitignored. This preview runs FFmpeg and the same decoded analysis/repair packages used by the Worker; it never calls
+Seedance or Kling.
+
 Apply the Supabase/Postgres control-plane migrations with a server-only `DATABASE_URL`:
 
 ```powershell

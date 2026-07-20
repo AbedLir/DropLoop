@@ -199,7 +199,7 @@ try {
   assert.equal(claimedValidation?.status, "validating");
   await repository.releaseLease(outputJob.job.id, "output-validation-worker");
   const loopResult = {
-    algorithmVersion: "boundary-gray-mae-v1",
+    algorithmVersion: "boundary-temporal-gray-v2",
     decision: "pass" as const,
     loopScore: 98,
     boundaryMaePercent: 2,
@@ -208,14 +208,30 @@ try {
     brightnessJumpPercent: 1,
     firstFrameBlack: false,
     lastFrameBlack: false,
+    sampleFramesPerSecond: 12,
+    sampledFrameCount: 96,
+    blackFrameCount: 0,
+    blackFrameRatioPercent: 0,
+    maxAdjacentBrightnessJumpPercent: 3,
+    p95AdjacentBrightnessJumpPercent: 2,
+    flashReversalCount: 0,
+    flashReversalsPerSecond: 0,
+    brightnessSafetyScore: 94,
+    flickerSafetyScore: 100,
     reasons: [],
     policy: {
-      algorithmVersion: "boundary-gray-mae-v1",
+      algorithmVersion: "boundary-temporal-gray-v2",
       frameWidth: 64,
       frameHeight: 64,
       maxBoundaryMaePercent: 12,
       maxBrightnessJumpPercent: 8,
-      blackFrameLumaFloorPercent: 2
+      blackFrameLumaFloorPercent: 2,
+      sampleFramesPerSecond: 12,
+      maxRepresentativeFrames: 240,
+      maxBlackFrameRatioPercent: 0,
+      maxAdjacentBrightnessJumpPercent: 35,
+      flashBrightnessDeltaPercent: 18,
+      maxFlashReversalsPerSecond: 3
     }
   };
   const registeredAnalysis = await repository.registerLoopAnalysis({

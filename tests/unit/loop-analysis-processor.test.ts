@@ -1,4 +1,4 @@
-import type { LoopAnalysisResult } from "@droploop/media";
+import type { LoopSafetyAnalysisResult } from "@droploop/media";
 import type {
   DurableJobRepository,
   RegisterLoopAnalysisInput,
@@ -41,8 +41,8 @@ const asset: ValidationAsset = {
   frameRate: 30
 };
 
-const result: LoopAnalysisResult = {
-  algorithmVersion: "boundary-gray-mae-v1",
+const result: LoopSafetyAnalysisResult = {
+  algorithmVersion: "boundary-temporal-gray-v2",
   decision: "repair_required",
   loopScore: 70,
   boundaryMaePercent: 30,
@@ -51,14 +51,30 @@ const result: LoopAnalysisResult = {
   brightnessJumpPercent: 20,
   firstFrameBlack: false,
   lastFrameBlack: false,
+  sampleFramesPerSecond: 12,
+  sampledFrameCount: 96,
+  blackFrameCount: 0,
+  blackFrameRatioPercent: 0,
+  maxAdjacentBrightnessJumpPercent: 20,
+  p95AdjacentBrightnessJumpPercent: 4,
+  flashReversalCount: 0,
+  flashReversalsPerSecond: 0,
+  brightnessSafetyScore: 60,
+  flickerSafetyScore: 100,
   reasons: ["Boundary MAE 30% exceeds 12%."],
   policy: {
-    algorithmVersion: "boundary-gray-mae-v1",
+    algorithmVersion: "boundary-temporal-gray-v2",
     frameWidth: 64,
     frameHeight: 64,
     maxBoundaryMaePercent: 12,
     maxBrightnessJumpPercent: 8,
-    blackFrameLumaFloorPercent: 2
+    blackFrameLumaFloorPercent: 2,
+    sampleFramesPerSecond: 12,
+    maxRepresentativeFrames: 240,
+    maxBlackFrameRatioPercent: 0,
+    maxAdjacentBrightnessJumpPercent: 35,
+    flashBrightnessDeltaPercent: 18,
+    maxFlashReversalsPerSecond: 3
   }
 };
 

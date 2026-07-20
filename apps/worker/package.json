@@ -10,6 +10,7 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
+    "prepare:loop-doctor-preview": "node --import tsx src/tools/prepare-loop-doctor-preview.ts",
     "test": "tsc --noEmit"
   },
   "dependencies": {

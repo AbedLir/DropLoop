@@ -4,7 +4,7 @@ import {
   providerJobSnapshotSchema,
   providerSubmissionSchema
 } from "@droploop/schemas";
-import { LOOP_ANALYSIS_POLICY_V1 } from "@droploop/media";
+import { CURRENT_LOOP_ANALYSIS_POLICY } from "@droploop/media";
 import type { LoopAnalysisResult, MediaProbe } from "@droploop/media";
 import type {
   ClipPrompt,
@@ -453,7 +453,7 @@ export class DurableJobController {
     if (
       !analysis ||
       analysis.assetId !== job.outputAssetId ||
-      analysis.result.algorithmVersion !== LOOP_ANALYSIS_POLICY_V1.algorithmVersion
+      analysis.result.algorithmVersion !== CURRENT_LOOP_ANALYSIS_POLICY.algorithmVersion
     ) {
       throw new JobConflictError(`Job ${job.id} has no current persisted loop analysis for its immutable output asset.`);
     }

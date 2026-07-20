@@ -12,5 +12,6 @@
 - [ADR-0010: Versioned decoded loop boundary gate](0010-versioned-decoded-loop-boundary-gate.md)
 - [ADR-0011: Exact repair asset and evidence lineage](0011-exact-repair-asset-and-evidence-lineage.md)
 - [ADR-0012: Versioned local Loop Doctor transform](0012-versioned-local-loop-doctor-transform.md)
+- [ADR-0013: Representative-frame temporal safety gate](0013-representative-frame-temporal-safety-gate.md)
 
 ADRs are immutable after acceptance. If a decision changes, add a new ADR that supersedes the old one.

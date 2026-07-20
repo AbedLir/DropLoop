@@ -28,9 +28,14 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
             {detail.project.screenFormat}
           </p>
         </div>
-        <Link className="button primaryButton" href={`/dashboard/projects/${projectId}/review`}>
-          Open human review
-        </Link>
+        <div className="pageHeadingActions">
+          <Link className="button" href={`/dashboard/projects/${projectId}/export`}>
+            Resolume delivery
+          </Link>
+          <Link className="button primaryButton" href={`/dashboard/projects/${projectId}/review`}>
+            Open human review
+          </Link>
+        </div>
       </div>
 
       <section className="grid">

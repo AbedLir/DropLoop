@@ -1,5 +1,3 @@
-import { buildExportPresetDetail, createDemoWorkspace } from "@droploop/pipeline";
-import { exportManifestSchema } from "@droploop/schemas";
 import { z } from "zod";
 import { ApiError, toErrorResponse } from "../../../../../lib/api-errors";
 import { SupabaseProjectStore } from "../../../../../lib/projects/project-store";
@@ -11,18 +9,40 @@ const requestExportSchema = z.object({
   idempotencyKey: z.string().min(1).max(200)
 });
 
-export async function GET(request: Request) {
-  const workspace = await createDemoWorkspace();
-  const url = new URL(request.url);
-  const requestedPreset = url.searchParams.get("preset") ?? workspace.exportManifest.preset;
-  const preset = exportManifestSchema.shape.preset.parse(requestedPreset);
-
-  return Response.json({
-    manifest: { ...workspace.exportManifest, preset },
-    detail: buildExportPresetDetail(preset),
-    safetyReport: workspace.safetyReport,
-    assets: workspace.assetClassifications.filter((asset) => asset.exportable)
-  });
+export async function GET(_request: Request, { params }: { params: Promise<{ projectId: string }> }) {
+  try {
+    const { projectId } = await params;
+    z.string().uuid().parse(projectId);
+    const { client } = await requireAuthenticatedSupabase();
+    const store = new SupabaseProjectStore(client);
+    const [detail, exports] = await Promise.all([store.getProject(projectId), store.listResolumeExports(projectId)]);
+    if (!detail || !exports) {
+      throw new ApiError(404, "Project not found.", "project_not_found");
+    }
+    return Response.json({
+      approvedClips: detail.clips.filter((clip) => clip.status === "approved"),
+      exports: exports.map((delivery) => ({
+        id: delivery.id,
+        jobId: delivery.jobId,
+        clipId: delivery.clipId,
+        status: delivery.status,
+        createdAt: delivery.createdAt,
+        updatedAt: delivery.updatedAt,
+        media: delivery.manifest
+          ? {
+              filename: delivery.manifest.media.filename,
+              hasAlpha: delivery.manifest.media.hasAlpha,
+              durationSeconds: delivery.manifest.media.durationSeconds,
+              width: delivery.manifest.media.width,
+              height: delivery.manifest.media.height,
+              frameRate: delivery.manifest.media.frameRate
+            }
+          : null
+      }))
+    });
+  } catch (error) {
+    return toErrorResponse(error);
+  }
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ projectId: string }> }) {

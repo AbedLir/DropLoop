@@ -5,6 +5,13 @@ import { z } from "zod";
 import { ApiError } from "../api-errors";
 import type { BpmAnalysis } from "../media/bpm";
 import type { MediaKind, MediaProbe } from "../media/ffprobe";
+import {
+  mapResolumeExport,
+  resolumeExportRowSchema,
+  type PersistedResolumeExport,
+  type ResolumeDeliveryArtifact,
+  resolveResolumeDeliveryArtifact
+} from "./resolume-export-artifact";
 
 const projectRowSchema = z.object({
   id: z.string().uuid(),
@@ -132,6 +139,7 @@ export type PersistedReview = {
 export type AppliedReview = z.infer<typeof reviewResultRowSchema>;
 export type RequestedResolumeExport = z.infer<typeof resolumeExportRequestRowSchema>;
 export type PersistedProjectAsset = z.infer<typeof projectAssetRowSchema>;
+export type { PersistedResolumeExport } from "./resolume-export-artifact";
 
 export class SupabaseProjectStore {
   constructor(private readonly client: SupabaseClient) {}
@@ -407,6 +415,59 @@ export class SupabaseProjectStore {
       .single();
     assertSupabaseSuccess(error, "Unable to queue Resolume export.");
     return resolumeExportRequestRowSchema.parse(data);
+  }
+
+  async listResolumeExports(projectId: string): Promise<PersistedResolumeExport[] | null> {
+    const projectResult = await this.client.from("projects").select("id").eq("id", projectId).maybeSingle();
+    assertSupabaseSuccess(projectResult.error, "Unable to load the export project.");
+    if (!projectResult.data) {
+      return null;
+    }
+
+    const { data, error } = await this.client
+      .from("exports")
+      .select(
+        "id, project_id, job_id, preset, status, clip_id, source_asset_id, source_analysis_id, storage_bucket, storage_path, manifest, created_at, updated_at"
+      )
+      .eq("project_id", projectId)
+      .eq("preset", "resolume")
+      .order("created_at", { ascending: false });
+    assertSupabaseSuccess(error, "Unable to load Resolume deliveries.");
+    return z.array(resolumeExportRowSchema).parse(data ?? []).map(mapResolumeExport);
+  }
+
+  async getResolumeExportArtifact(input: {
+    projectId: string;
+    exportId: string;
+    artifact: ResolumeDeliveryArtifact;
+  }): Promise<{ signedUrl: string; downloadName: string }> {
+    const { data, error } = await this.client
+      .from("exports")
+      .select(
+        "id, project_id, job_id, preset, status, clip_id, source_asset_id, source_analysis_id, storage_bucket, storage_path, manifest, created_at, updated_at"
+      )
+      .eq("id", input.exportId)
+      .eq("project_id", input.projectId)
+      .eq("preset", "resolume")
+      .maybeSingle();
+    assertSupabaseSuccess(error, "Unable to load Resolume delivery.");
+    if (!data) {
+      throw new ApiError(404, "Resolume delivery not found.", "resolume_export_not_found");
+    }
+
+    const delivery = mapResolumeExport(resolumeExportRowSchema.parse(data));
+    const resolved = resolveResolumeDeliveryArtifact(delivery, input.artifact);
+    if (!resolved) {
+      throw new ApiError(409, "Resolume delivery is not ready for private download.", "resolume_export_not_ready");
+    }
+
+    const { data: signed, error: signingError } = await this.client.storage
+      .from(resolved.bucket)
+      .createSignedUrl(resolved.path, 300, { download: resolved.downloadName });
+    if (signingError || !signed?.signedUrl) {
+      throw new ApiError(502, "Unable to create a private Resolume download URL.", "resolume_export_signing_failed");
+    }
+    return { signedUrl: signed.signedUrl, downloadName: resolved.downloadName };
   }
 }
 

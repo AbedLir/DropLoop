@@ -20,6 +20,7 @@ The first Resolume delivery path is a single-clip, durable `export` job.
 - Alpha is a measured property, not a requested label: an Alpha source must decode to Alpha in the MOV; an opaque source must remain opaque. Unknown or mismatched Alpha fails closed.
 - The media file and `manifest.json` are written under a private, immutable export prefix. The manifest binds source hash, source analysis, ProRes probe, alpha state, v3 loop scores, and unresolved manual gates.
 - The export completes only after the database confirms the uploaded media/manifest paths and their exact lineage.
+- The authenticated owner can inspect durable delivery status and receives a five-minute signed redirect only for a completed MOV or manifest whose persisted delivery record still matches the exact immutable export prefix. Queued, failed, legacy, or substituted records do not expose a download URL.
 
 ## Consequences
 
@@ -29,3 +30,5 @@ This creates a real ProRes delivery artifact without claiming the broader P0-D r
 - manual import in Resolume and sustained 10-minute playback on target hardware;
 - DXV3 licensing/SDK assessment and, if licensed, a separately verified encoder path;
 - no Alpha creation for a source that is opaque.
+
+The operator UI is deliberately not a playback or hardware-acceptance proxy. It exposes the source-of-truth queue state, private downloads after completion, and the manual Resolume/10-minute checklist; it does not mark those human gates complete.

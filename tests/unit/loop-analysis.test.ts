@@ -2,7 +2,7 @@ import {
   evaluateLoopBoundary,
   evaluateLoopSafety,
   type LoopAnalysisPolicy,
-  type LoopSafetyPolicy
+  type LoopSeamWindowPolicy
 } from "@droploop/media";
 import { describe, expect, it } from "vitest";
 
@@ -15,15 +15,18 @@ const policy: LoopAnalysisPolicy = {
   blackFrameLumaFloorPercent: 2
 };
 
-const safetyPolicy: LoopSafetyPolicy = {
+const safetyPolicy: LoopSeamWindowPolicy = {
   ...policy,
-  algorithmVersion: "test-temporal-v2",
+  algorithmVersion: "test-seam-window-v3",
   sampleFramesPerSecond: 12,
   maxRepresentativeFrames: 24,
   maxBlackFrameRatioPercent: 0,
   maxAdjacentBrightnessJumpPercent: 35,
   flashBrightnessDeltaPercent: 18,
-  maxFlashReversalsPerSecond: 3
+  maxFlashReversalsPerSecond: 3,
+  seamWindowSeconds: 0.5,
+  maxSeamTransitionOutlierRatio: 2.5,
+  maxSeamJerkOutlierRatio: 3
 };
 
 describe("decoded loop boundary analysis", () => {
@@ -69,20 +72,34 @@ describe("decoded loop boundary analysis", () => {
 });
 
 describe("representative-frame temporal safety", () => {
-  it("passes a stable non-black sample and preserves separate safety scores", () => {
-    const frames = [100, 104, 108, 105, 102, 100].map((value) => new Uint8Array(4).fill(value));
+  it("passes a non-black sample whose tail-to-head motion matches the clip baseline", () => {
+    const frames = [100, 104, 108, 110, 108, 104, 100, 96].map((value) => new Uint8Array(4).fill(value));
     const result = evaluateLoopSafety(frames[0]!, frames.at(-1)!, frames, 2, 3, safetyPolicy);
 
     expect(result).toMatchObject({
-      algorithmVersion: "test-temporal-v2",
+      algorithmVersion: "test-seam-window-v3",
       decision: "pass",
-      sampledFrameCount: 6,
+      sampledFrameCount: 8,
       blackFrameCount: 0,
       flashReversalCount: 0,
       reasons: []
     });
     expect(result.brightnessSafetyScore).toBeGreaterThan(95);
     expect(result.flickerSafetyScore).toBe(100);
+    expect(result.seamTransitionOutlierRatio).toBeLessThanOrEqual(safetyPolicy.maxSeamTransitionOutlierRatio);
+    expect(result.seamJerkOutlierRatio).toBeLessThanOrEqual(safetyPolicy.maxSeamJerkOutlierRatio);
+  });
+
+  it("rejects a seam whose endpoint frame similarity hides a motion reset", () => {
+    const frames = [100, 105, 110, 115, 120, 125].map((value) => new Uint8Array(4).fill(value));
+    const result = evaluateLoopSafety(frames[0]!, frames.at(-1)!, frames, 2, 3, safetyPolicy);
+
+    expect(result.boundaryMaePercent).toBeLessThan(safetyPolicy.maxBoundaryMaePercent);
+    expect(result.decision).toBe("repair_required");
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      expect.stringContaining("Loop seam transition"),
+      expect.stringContaining("Loop seam motion jerk")
+    ]));
   });
 
   it("flags representative black frames, severe brightness steps, and rapid reversals", () => {

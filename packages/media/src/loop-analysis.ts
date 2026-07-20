@@ -21,6 +21,12 @@ export type LoopSafetyPolicy = LoopAnalysisPolicy & {
   maxFlashReversalsPerSecond: number;
 };
 
+export type LoopSeamWindowPolicy = LoopSafetyPolicy & {
+  seamWindowSeconds: number;
+  maxSeamTransitionOutlierRatio: number;
+  maxSeamJerkOutlierRatio: number;
+};
+
 export type LoopAnalysisResult = {
   algorithmVersion: string;
   decision: "pass" | "repair_required";
@@ -46,7 +52,15 @@ export type LoopSafetyAnalysisResult = Omit<LoopAnalysisResult, "policy"> & {
   flashReversalsPerSecond: number;
   brightnessSafetyScore: number;
   flickerSafetyScore: number;
-  policy: LoopSafetyPolicy;
+  seamWindowFrameCount: number;
+  seamTransitionMaePercent: number;
+  seamReferenceP95MaePercent: number;
+  seamTransitionOutlierRatio: number;
+  seamJerkPercent: number;
+  seamReferenceP95JerkPercent: number;
+  seamJerkOutlierRatio: number;
+  seamContinuityScore: number;
+  policy: LoopSeamWindowPolicy;
 };
 
 export const LOOP_ANALYSIS_POLICY_V1: Readonly<LoopAnalysisPolicy> = Object.freeze({
@@ -69,7 +83,15 @@ export const LOOP_ANALYSIS_POLICY_V2: Readonly<LoopSafetyPolicy> = Object.freeze
   maxFlashReversalsPerSecond: 3
 });
 
-export const CURRENT_LOOP_ANALYSIS_POLICY = LOOP_ANALYSIS_POLICY_V2;
+export const LOOP_ANALYSIS_POLICY_V3: Readonly<LoopSeamWindowPolicy> = Object.freeze({
+  ...LOOP_ANALYSIS_POLICY_V2,
+  algorithmVersion: "boundary-seam-window-gray-v3",
+  seamWindowSeconds: 0.5,
+  maxSeamTransitionOutlierRatio: 2.5,
+  maxSeamJerkOutlierRatio: 3
+});
+
+export const CURRENT_LOOP_ANALYSIS_POLICY = LOOP_ANALYSIS_POLICY_V3;
 
 export class LoopAnalysisError extends Error {
   constructor(message: string) {
@@ -83,7 +105,7 @@ export async function analyzeVideoLoopBuffer(
   filename: string,
   durationSeconds: number,
   frameRate: number,
-  policy: LoopSafetyPolicy = LOOP_ANALYSIS_POLICY_V2
+  policy: LoopSeamWindowPolicy = LOOP_ANALYSIS_POLICY_V3
 ): Promise<LoopSafetyAnalysisResult> {
   if (bytes.byteLength === 0) throw new LoopAnalysisError("Loop analysis requires non-empty video bytes.");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
@@ -143,9 +165,9 @@ export function evaluateLoopSafety(
   representativeFrames: readonly Uint8Array[],
   durationSeconds: number,
   sampleFramesPerSecond: number,
-  policy: LoopSafetyPolicy = LOOP_ANALYSIS_POLICY_V2
+  policy: LoopSeamWindowPolicy = LOOP_ANALYSIS_POLICY_V3
 ): LoopSafetyAnalysisResult {
-  validateSafetyPolicy(policy);
+  validateSeamWindowPolicy(policy);
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     throw new LoopAnalysisError("Temporal loop evidence requires a positive duration.");
   }
@@ -188,6 +210,7 @@ export function evaluateLoopSafety(
   }
   const analyzedDurationSeconds = Math.max(durationSeconds, representativeFrames.length / sampleFramesPerSecond);
   const flashReversalsPerSecond = roundMetric(flashReversalCount / analyzedDurationSeconds);
+  const seam = measureSeamWindow(firstFrame, lastFrame, representativeFrames, sampleFramesPerSecond, policy);
   const reasons = [...boundary.reasons];
   if (blackFrameRatioPercent > policy.maxBlackFrameRatioPercent) {
     reasons.push(
@@ -202,6 +225,16 @@ export function evaluateLoopSafety(
   if (flashReversalsPerSecond > policy.maxFlashReversalsPerSecond) {
     reasons.push(
       `Rapid brightness reversals ${flashReversalsPerSecond}/s exceed ${policy.maxFlashReversalsPerSecond}/s.`
+    );
+  }
+  if (seam.seamTransitionOutlierRatio > policy.maxSeamTransitionOutlierRatio) {
+    reasons.push(
+      `Loop seam transition ${seam.seamTransitionOutlierRatio}× local motion baseline exceeds ${policy.maxSeamTransitionOutlierRatio}×.`
+    );
+  }
+  if (seam.seamJerkOutlierRatio > policy.maxSeamJerkOutlierRatio) {
+    reasons.push(
+      `Loop seam motion jerk ${seam.seamJerkOutlierRatio}× local baseline exceeds ${policy.maxSeamJerkOutlierRatio}×.`
     );
   }
 
@@ -227,6 +260,7 @@ export function evaluateLoopSafety(
       0,
       Math.round(100 - (flashReversalsPerSecond / policy.maxFlashReversalsPerSecond) * 100)
     ),
+    ...seam,
     policy: { ...policy }
   };
 }
@@ -264,6 +298,105 @@ function measureBoundary(firstFrame: Uint8Array, lastFrame: Uint8Array, policy: 
     lastFrameBlack,
     reasons
   };
+}
+
+function measureSeamWindow(
+  firstFrame: Uint8Array,
+  lastFrame: Uint8Array,
+  representativeFrames: readonly Uint8Array[],
+  sampleFramesPerSecond: number,
+  policy: LoopSeamWindowPolicy
+) {
+  const requestedWindowFrameCount = Math.max(3, Math.round(policy.seamWindowSeconds * sampleFramesPerSecond));
+  const seamWindowFrameCount = Math.min(requestedWindowFrameCount, Math.floor(representativeFrames.length / 2));
+  if (seamWindowFrameCount < 3) {
+    throw new LoopAnalysisError("Seam-window evidence requires at least three representative frames on each side of the loop.");
+  }
+
+  const headWindow = representativeFrames.slice(0, seamWindowFrameCount);
+  const tailWindow = representativeFrames.slice(-seamWindowFrameCount);
+  const firstWindow = [firstFrame, ...headWindow.slice(1)];
+  const finalWindow = [...tailWindow.slice(0, -1), lastFrame];
+  const localTransitionMae = adjacentFrameMae(representativeFrames);
+  const localJerk = adjacentMotionJerk(representativeFrames);
+  const seamTransitionMaePercent = frameMaePercent(lastFrame, firstFrame);
+  const seamReferenceP95MaePercent = percentile(localTransitionMae, 0.95);
+  const seamTransitionOutlierRatio = ratioAgainstBaseline(
+    seamTransitionMaePercent,
+    seamReferenceP95MaePercent
+  );
+  const seamJerkPercent = Math.max(
+    motionJerkPercent(finalWindow.at(-2) as Uint8Array, lastFrame, firstFrame),
+    motionJerkPercent(lastFrame, firstFrame, firstWindow[1] as Uint8Array)
+  );
+  const seamReferenceP95JerkPercent = percentile(localJerk, 0.95);
+  const seamJerkOutlierRatio = ratioAgainstBaseline(seamJerkPercent, seamReferenceP95JerkPercent);
+  const seamContinuityScore = Math.max(
+    0,
+    Math.round(100 - Math.max(
+      Math.max(0, seamTransitionOutlierRatio - 1) * 25,
+      Math.max(0, seamJerkOutlierRatio - 1) * 20
+    ))
+  );
+
+  return {
+    seamWindowFrameCount,
+    seamTransitionMaePercent,
+    seamReferenceP95MaePercent,
+    seamTransitionOutlierRatio,
+    seamJerkPercent,
+    seamReferenceP95JerkPercent,
+    seamJerkOutlierRatio,
+    seamContinuityScore
+  };
+}
+
+function adjacentFrameMae(frames: readonly Uint8Array[]): number[] {
+  return frames.slice(1).map((frame, index) => frameMaePercent(frames[index] as Uint8Array, frame));
+}
+
+function adjacentMotionJerk(frames: readonly Uint8Array[]): number[] {
+  const values: number[] = [];
+  for (let index = 1; index < frames.length - 1; index += 1) {
+    values.push(motionJerkPercent(
+      frames[index - 1] as Uint8Array,
+      frames[index] as Uint8Array,
+      frames[index + 1] as Uint8Array
+    ));
+  }
+  return values;
+}
+
+function frameMaePercent(left: Uint8Array, right: Uint8Array): number {
+  if (left.byteLength !== right.byteLength || left.byteLength === 0) {
+    throw new LoopAnalysisError("Temporal frame comparison requires equally sized non-empty grayscale frames.");
+  }
+  let absoluteDifference = 0;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    absoluteDifference += Math.abs((left[index] ?? 0) - (right[index] ?? 0));
+  }
+  return percent(absoluteDifference / left.byteLength);
+}
+
+function motionJerkPercent(previous: Uint8Array, current: Uint8Array, next: Uint8Array): number {
+  if (
+    previous.byteLength !== current.byteLength ||
+    current.byteLength !== next.byteLength ||
+    current.byteLength === 0
+  ) {
+    throw new LoopAnalysisError("Temporal motion comparison requires equally sized non-empty grayscale frames.");
+  }
+  let absoluteAcceleration = 0;
+  for (let index = 0; index < current.byteLength; index += 1) {
+    const precedingDelta = (current[index] ?? 0) - (previous[index] ?? 0);
+    const followingDelta = (next[index] ?? 0) - (current[index] ?? 0);
+    absoluteAcceleration += Math.abs(followingDelta - precedingDelta);
+  }
+  return percent(absoluteAcceleration / current.byteLength);
+}
+
+function ratioAgainstBaseline(value: number, baseline: number): number {
+  return roundMetric(value / Math.max(0.25, baseline));
 }
 
 function decodeGrayFrame(filePath: string, timestampSeconds: number, policy: LoopAnalysisPolicy): Promise<Uint8Array> {
@@ -385,6 +518,21 @@ function validateSafetyPolicy(policy: LoopSafetyPolicy): void {
   }
   if (!Number.isFinite(policy.maxFlashReversalsPerSecond) || policy.maxFlashReversalsPerSecond <= 0) {
     throw new LoopAnalysisError("maxFlashReversalsPerSecond must be positive.");
+  }
+}
+
+function validateSeamWindowPolicy(policy: LoopSeamWindowPolicy): void {
+  validateSafetyPolicy(policy);
+  if (!Number.isFinite(policy.seamWindowSeconds) || policy.seamWindowSeconds <= 0) {
+    throw new LoopAnalysisError("seamWindowSeconds must be positive.");
+  }
+  for (const [name, value] of Object.entries({
+    maxSeamTransitionOutlierRatio: policy.maxSeamTransitionOutlierRatio,
+    maxSeamJerkOutlierRatio: policy.maxSeamJerkOutlierRatio
+  })) {
+    if (!Number.isFinite(value) || value <= 1) {
+      throw new LoopAnalysisError(`${name} must be greater than 1.`);
+    }
   }
 }
 

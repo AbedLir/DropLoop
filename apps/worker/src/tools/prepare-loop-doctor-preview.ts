@@ -16,13 +16,8 @@ await mkdir(outputDirectory, { recursive: true });
 
 await runFfmpeg([
   "-v", "error",
-  "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=2",
-  "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=2",
-  "-filter_complex",
-  "[0:v]eq=brightness=0.08:contrast=0.85:saturation=1.2[first];" +
-    "[1:v]hflip,eq=brightness=-0.08:contrast=0.85:saturation=1.2[second];" +
-    "[first][second]concat=n=2:v=1:a=0[preview]",
-  "-map", "[preview]",
+  "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=4",
+  "-vf", "eq=brightness='0.12*t/4':eval=frame:contrast=0.9:saturation=1.1",
   "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "18",
   "-pix_fmt", "yuv420p", "-movflags", "+faststart", sourcePath
 ]);

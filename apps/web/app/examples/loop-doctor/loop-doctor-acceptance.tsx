@@ -52,7 +52,7 @@ export function LoopDoctorAcceptance({ fixture }: { fixture: AcceptanceFixture }
           <h1>Can Loop Doctor remove the seam without damaging the clip?</h1>
           <p>
             Both panels play the same immutable source lineage. “After” is the zero-cost local cyclic crossfade,
-            followed by a fresh decoded v2 safety analysis.
+            followed by a fresh decoded v3 seam-window analysis.
           </p>
         </div>
         <div className="loopDoctorDecision">
@@ -93,9 +93,10 @@ export function LoopDoctorAcceptance({ fixture }: { fixture: AcceptanceFixture }
         </div>
         <div className="loopDoctorEvidenceGrid">
           <DeltaMetric label="Seam MAE" before={fixture.before.boundaryMaePercent} after={fixture.after.boundaryMaePercent} suffix="%" />
+          <DeltaMetric label="Motion ratio" before={fixture.before.seamTransitionOutlierRatio} after={fixture.after.seamTransitionOutlierRatio} suffix="×" />
+          <DeltaMetric label="Jerk ratio" before={fixture.before.seamJerkOutlierRatio} after={fixture.after.seamJerkOutlierRatio} suffix="×" />
+          <DeltaMetric label="Seam score" before={fixture.before.seamContinuityScore} after={fixture.after.seamContinuityScore} />
           <DeltaMetric label="Brightness score" before={fixture.before.brightnessSafetyScore} after={fixture.after.brightnessSafetyScore} />
-          <DeltaMetric label="Flicker score" before={fixture.before.flickerSafetyScore} after={fixture.after.flickerSafetyScore} />
-          <DeltaMetric label="Black frames" before={fixture.before.blackFrameCount} after={fixture.after.blackFrameCount} />
         </div>
         <details>
           <summary>Evidence lineage and thresholds</summary>
@@ -104,6 +105,9 @@ export function LoopDoctorAcceptance({ fixture }: { fixture: AcceptanceFixture }
             <div><dt>Repaired SHA-256</dt><dd>{shortHash(fixture.repairedSha256)}</dd></div>
             <div><dt>Repair</dt><dd>{fixture.repairVersion}</dd></div>
             <div><dt>Samples</dt><dd>{fixture.after.sampledFrameCount} @ {fixture.after.sampleFramesPerSecond} fps</dd></div>
+            <div><dt>Seam window</dt><dd>{fixture.after.seamWindowFrameCount} frames per side</dd></div>
+            <div><dt>Motion threshold</dt><dd>{fixture.after.policy.maxSeamTransitionOutlierRatio}× max</dd></div>
+            <div><dt>Jerk threshold</dt><dd>{fixture.after.policy.maxSeamJerkOutlierRatio}× max</dd></div>
             <div><dt>Max luma step</dt><dd>{fixture.after.policy.maxAdjacentBrightnessJumpPercent}%</dd></div>
             <div><dt>Flash reversals</dt><dd>{fixture.after.policy.maxFlashReversalsPerSecond}/s max</dd></div>
           </dl>
@@ -163,7 +167,7 @@ function VideoEvidence({
       </div>
       <video autoPlay loop muted playsInline preload="auto" ref={ref} src={src} />
       <div className="loopDoctorMiniMetrics">
-        <Metric label="Loop" value={analysis.loopScore} />
+        <Metric label="Seam" value={analysis.seamContinuityScore} />
         <Metric label="Brightness" value={analysis.brightnessSafetyScore} />
         <Metric label="Flicker" value={analysis.flickerSafetyScore} />
       </div>
@@ -171,7 +175,7 @@ function VideoEvidence({
         <ul className="loopDoctorReasons">
           {analysis.reasons.map((reason) => <li key={reason}>{reason}</li>)}
         </ul>
-      ) : <p className="successText">All decoded v2 checks passed.</p>}
+      ) : <p className="successText">All decoded v3 seam-window checks passed.</p>}
     </article>
   );
 }

@@ -42,7 +42,7 @@ const asset: ValidationAsset = {
 };
 
 const result: LoopSafetyAnalysisResult = {
-  algorithmVersion: "boundary-temporal-gray-v2",
+  algorithmVersion: "boundary-seam-window-gray-v3",
   decision: "repair_required",
   loopScore: 70,
   boundaryMaePercent: 30,
@@ -61,9 +61,17 @@ const result: LoopSafetyAnalysisResult = {
   flashReversalsPerSecond: 0,
   brightnessSafetyScore: 60,
   flickerSafetyScore: 100,
+  seamWindowFrameCount: 6,
+  seamTransitionMaePercent: 20,
+  seamReferenceP95MaePercent: 4,
+  seamTransitionOutlierRatio: 5,
+  seamJerkPercent: 12,
+  seamReferenceP95JerkPercent: 3,
+  seamJerkOutlierRatio: 4,
+  seamContinuityScore: 0,
   reasons: ["Boundary MAE 30% exceeds 12%."],
   policy: {
-    algorithmVersion: "boundary-temporal-gray-v2",
+    algorithmVersion: "boundary-seam-window-gray-v3",
     frameWidth: 64,
     frameHeight: 64,
     maxBoundaryMaePercent: 12,
@@ -74,7 +82,10 @@ const result: LoopSafetyAnalysisResult = {
     maxBlackFrameRatioPercent: 0,
     maxAdjacentBrightnessJumpPercent: 35,
     flashBrightnessDeltaPercent: 18,
-    maxFlashReversalsPerSecond: 3
+    maxFlashReversalsPerSecond: 3,
+    seamWindowSeconds: 0.5,
+    maxSeamTransitionOutlierRatio: 2.5,
+    maxSeamJerkOutlierRatio: 3
   }
 };
 

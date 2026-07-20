@@ -199,7 +199,7 @@ try {
   assert.equal(claimedValidation?.status, "validating");
   await repository.releaseLease(outputJob.job.id, "output-validation-worker");
   const loopResult = {
-    algorithmVersion: "boundary-temporal-gray-v2",
+    algorithmVersion: "boundary-seam-window-gray-v3",
     decision: "pass" as const,
     loopScore: 98,
     boundaryMaePercent: 2,
@@ -218,9 +218,17 @@ try {
     flashReversalsPerSecond: 0,
     brightnessSafetyScore: 94,
     flickerSafetyScore: 100,
+    seamWindowFrameCount: 6,
+    seamTransitionMaePercent: 2,
+    seamReferenceP95MaePercent: 2,
+    seamTransitionOutlierRatio: 1,
+    seamJerkPercent: 2,
+    seamReferenceP95JerkPercent: 2,
+    seamJerkOutlierRatio: 1,
+    seamContinuityScore: 100,
     reasons: [],
     policy: {
-      algorithmVersion: "boundary-temporal-gray-v2",
+      algorithmVersion: "boundary-seam-window-gray-v3",
       frameWidth: 64,
       frameHeight: 64,
       maxBoundaryMaePercent: 12,
@@ -231,7 +239,10 @@ try {
       maxBlackFrameRatioPercent: 0,
       maxAdjacentBrightnessJumpPercent: 35,
       flashBrightnessDeltaPercent: 18,
-      maxFlashReversalsPerSecond: 3
+      maxFlashReversalsPerSecond: 3,
+      seamWindowSeconds: 0.5,
+      maxSeamTransitionOutlierRatio: 2.5,
+      maxSeamJerkOutlierRatio: 3
     }
   };
   const registeredAnalysis = await repository.registerLoopAnalysis({

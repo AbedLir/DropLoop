@@ -7,6 +7,7 @@ export {
   CURRENT_LOOP_ANALYSIS_POLICY,
   LOOP_ANALYSIS_POLICY_V1,
   LOOP_ANALYSIS_POLICY_V2,
+  LOOP_ANALYSIS_POLICY_V3,
   LoopAnalysisError,
   analyzeVideoLoopBuffer,
   evaluateLoopBoundary,
@@ -16,7 +17,8 @@ export type {
   LoopAnalysisPolicy,
   LoopAnalysisResult,
   LoopSafetyAnalysisResult,
-  LoopSafetyPolicy
+  LoopSafetyPolicy,
+  LoopSeamWindowPolicy
 } from "./loop-analysis";
 export {
   LOOP_REPAIR_POLICY_V1,

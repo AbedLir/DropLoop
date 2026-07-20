@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { LoopSafetyAnalysisResult, MediaProbe } from "@droploop/media";
+import { CURRENT_LOOP_ANALYSIS_POLICY, type LoopSafetyAnalysisResult, type MediaProbe } from "@droploop/media";
 import Link from "next/link";
 import { LoopDoctorAcceptance } from "./loop-doctor-acceptance";
 
@@ -52,6 +52,7 @@ async function loadFixture(): Promise<AcceptanceFixture | null> {
       candidate.before?.decision !== "repair_required" ||
       candidate.after?.decision !== "pass" ||
       candidate.analyzerVersion !== candidate.after.algorithmVersion ||
+      candidate.analyzerVersion !== CURRENT_LOOP_ANALYSIS_POLICY.algorithmVersion ||
       typeof candidate.repairVersion !== "string"
     ) {
       return null;

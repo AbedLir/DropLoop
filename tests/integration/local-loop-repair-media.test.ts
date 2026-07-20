@@ -19,10 +19,9 @@ describe("local Loop Doctor media transform", () => {
     const sourcePath = join(directory, "source.mp4");
     await runFfmpeg([
       "-v", "error",
-      "-f", "lavfi", "-i", "color=c=#a0a0a0:s=320x180:r=30:d=1",
-      "-f", "lavfi", "-i", "color=c=#606060:s=320x180:r=30:d=1",
-      "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
-      "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p", sourcePath
+      "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=4",
+      "-vf", "eq=brightness='0.12*t/4':eval=frame:contrast=0.9:saturation=1.1",
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", sourcePath
     ]);
     sourceBytes = new Uint8Array(await readFile(sourcePath));
   });
@@ -31,7 +30,7 @@ describe("local Loop Doctor media transform", () => {
     await rm(directory, { force: true, recursive: true });
   });
 
-  it("preserves duration while converting a hard boundary into a passing decoded seam", async () => {
+  it("preserves duration while converting a non-looping source boundary into a passing seam window", async () => {
     const sourceProbe = await probeMediaBuffer(sourceBytes, "source.mp4", "video");
     const before = await analyzeVideoLoopBuffer(
       sourceBytes,
@@ -56,7 +55,7 @@ describe("local Loop Doctor media transform", () => {
 
     expect(repaired.policy).toEqual(LOOP_REPAIR_POLICY_V1);
     expect(before.decision).toBe("repair_required");
-    expect(before.boundaryMaePercent).toBeGreaterThan(20);
+    expect(before.boundaryMaePercent).toBeGreaterThan(12);
     expect(after.reasons).toEqual([]);
     expect(after.decision).toBe("pass");
     expect(after.boundaryMaePercent).toBeLessThan(before.boundaryMaePercent);

@@ -612,7 +612,7 @@ textarea {
 
 .loopDoctorEvidenceGrid {
   flex: 1;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
   border: 1px solid #252833;
   border-radius: 10px;
   overflow: hidden;
